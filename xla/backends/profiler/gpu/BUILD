@@ -343,6 +343,20 @@ cc_library(
 )
 
 cc_library(
+    name = "cupti_pm_sampler_utils",
+    srcs = ["cupti_pm_sampler_utils.cc"],
+    hdrs = ["cupti_pm_sampler_utils.h"],
+    tags = [
+        "cuda-only",
+        "gpu",
+    ],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
     name = "cupti_pm_sampler_stub",
     srcs = ["cupti_pm_sampler_stub.cc"],
     hdrs = [
@@ -622,6 +636,7 @@ cc_library(
     deps = [
         ":cupti_buffer_events",
         ":cupti_interface",
+        ":cupti_pm_sampler_utils",
         "//xla/tsl/cuda",
         "//xla/tsl/cuda:cupti",
         "//xla/tsl/profiler/utils:lock_free_queue",
