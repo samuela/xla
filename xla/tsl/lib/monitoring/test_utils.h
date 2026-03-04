@@ -15,24 +15,30 @@ limitations under the License.
 #ifndef XLA_TSL_LIB_MONITORING_TEST_UTILS_H_
 #define XLA_TSL_LIB_MONITORING_TEST_UTILS_H_
 
-#include <cstdint>
+#include <cstddef>
+#include <functional>
+#include <initializer_list>
+#include <utility>
+#include <vector>
 
 #include "absl/status/statusor.h"
+#include "xla/tsl/lib/histogram/histogram.h"
+#include "xla/tsl/lib/monitoring/collected_metrics.h"
 #include "xla/tsl/lib/monitoring/types.h"
-#include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/platform/test.h"
 #include "xla/tsl/protobuf/histogram.pb.h"
 
 namespace tsl {
 namespace monitoring {
 namespace testing {
-using tensorflow::HistogramProto;
+
 // Represents a `HistogramProto` but with a restricted API. This is used by
 // a `CellReader` to return collected histograms in unit tests.
 // Refer to core/framework/summary.proto for documentation of relevant fields.
 class Histogram final {
  public:
   Histogram() = default;
-  explicit Histogram(const HistogramProto& histogram_proto)
+  explicit Histogram(const ::tensorflow::HistogramProto& histogram_proto)
       : histogram_proto_(histogram_proto) {}
 
   // Returns the number of samples.
@@ -62,7 +68,7 @@ class Histogram final {
   absl::StatusOr<Histogram> Subtract(const Histogram& other) const;
 
  private:
-  HistogramProto histogram_proto_;
+  ::tensorflow::HistogramProto histogram_proto_;
 };
 
 // Represents a collected `Percentiles` but with a restricted API. Subtracting
@@ -87,6 +93,69 @@ class Percentiles final {
  private:
   tsl::monitoring::Percentiles percentiles_;
 };
+
+MATCHER(HasValidTimestamps,
+        "has valid timestamps "
+        "(end_timestamp_millis >= start_timestamp_millis > 0)") {
+  using ::testing::AllOf;
+  using ::testing::Ge;
+  using ::testing::Gt;
+
+  return ::testing::ExplainMatchResult(
+      AllOf(arg->start_timestamp_millis > 0, arg->end_timestamp_millis > 0,
+            arg->end_timestamp_millis >= arg->start_timestamp_millis),
+      arg, result_listener);
+}
+
+MATCHER_P(HasUnorderedLabels, labels, "") {
+  using ::testing::UnorderedElementsAreArray;
+
+  return ::testing::ExplainMatchResult(UnorderedElementsAreArray(labels),
+                                       arg->labels, result_listener);
+}
+
+inline auto HasUnorderedLabels(std::initializer_list<Point::Label>&& labels) {
+  return HasUnorderedLabels<std::initializer_list<Point::Label>>(
+      std::forward<std::initializer_list<Point::Label>>(labels));
+}
+
+using OnePointSatisfies =
+    std::initializer_list<::testing::Matcher<const Point*>>;
+
+MATCHER_P(UnorderedPointsOneForEachConstraintSet, pointwise_matcher_sets, "") {
+  using ::testing::AllOfArray;
+  using ::testing::UnorderedElementsAreArray;
+
+  std::vector<::testing::Matcher<const Point*>> transformed;
+  transformed.reserve(pointwise_matcher_sets.size());
+  std::transform(pointwise_matcher_sets.cbegin(), pointwise_matcher_sets.cend(),
+                 transformed.begin(),
+                 AllOfArray<::testing::Matcher<const Point*>>);
+  return ::testing::ExplainMatchResult(UnorderedElementsAreArray(transformed),
+                                       arg, result_listener);
+}
+
+inline auto UnorderedPointsOneForEachConstraintSet(
+    std::initializer_list<OnePointSatisfies>&& pointwise_matcher_sets) {
+  return UnorderedPointsOneForEachConstraintSet<
+      std::initializer_list<OnePointSatisfies>>(
+      std::forward<std::initializer_list<OnePointSatisfies>>(
+          pointwise_matcher_sets));
+}
+
+MATCHER_P(HistogramEquals, expected, "") {
+  ::tsl::histogram::Histogram actual;
+  if (!actual.DecodeFromProto(arg)) {
+    *result_listener << "Failed to decode histogram from proto.";
+    return false;
+  }
+  return ExplainMatchResult(Eq(expected.ToString()), actual.ToString(),
+                            result_listener);
+}
+inline auto HistogramEquals(const ::tsl::histogram::Histogram& expected) {
+  return HistogramEquals<const ::tsl::histogram::Histogram&>(
+      std::ref(expected));
+}
 
 }  // namespace testing
 }  // namespace monitoring
