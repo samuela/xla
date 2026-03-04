@@ -586,5 +586,14 @@ mlir::sdy::TensorShardingPerValueAttr convertToSdySharding(
       context, convertToSdyShardingAttr(hloSharding, types[0], context));
 }
 
+StringRef getOriginalFuncName(FuncOp funcOp) {
+  if (auto originalFuncName =
+          funcOp->getAttrOfType<StringAttr>(kOriginalFuncName);
+      originalFuncName) {
+    return originalFuncName.getValue();
+  }
+  return funcOp.getName();
+}
+
 }  // namespace sdy
 }  // namespace xla
