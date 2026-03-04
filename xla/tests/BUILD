@@ -3620,6 +3620,7 @@ xla_test(
         ":xla_internal_test_main",
         "//xla:shape_util",
         "//xla/hlo/builder:xla_builder",
+        "//xla/hlo/ir:hlo",
         "//xla/hlo/parser:hlo_parser",
         "//xla/tsl/lib/core:status_test_util",
         "@com_google_absl//absl/base",
