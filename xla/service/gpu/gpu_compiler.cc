@@ -249,8 +249,8 @@ limitations under the License.
 #include "xla/service/float_support.h"
 #include "xla/service/gather_expander.h"
 #include "xla/service/gpu/alias_info.h"
+#include "xla/service/gpu/autotuning/autotuner_cache.h"
 #include "xla/service/gpu/autotuning/autotuner_pass.h"
-#include "xla/service/gpu/autotuning/autotuner_util.h"
 #include "xla/service/gpu/compile_module_to_llvm_ir.h"
 #include "xla/service/gpu/conv_layout_normalization.h"
 #include "xla/service/gpu/cublas_cudnn.h"
@@ -2110,7 +2110,8 @@ absl::StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPasses(
 
   AutotuneResults autotune_results;
   if (!is_deviceless) {
-    RETURN_IF_ERROR(AutotunerUtil::SerializeAutotuneResults(&autotune_results));
+    RETURN_IF_ERROR(
+        AutotunerCache::SerializeAutotuneResults(&autotune_results));
     RETURN_IF_ERROR(SerializeAutotuneResultsToFile(debug_opts));
   }
   const std::optional<std::string> optimized_fingerprint =
@@ -2124,7 +2125,7 @@ absl::StatusOr<std::unique_ptr<HloModule>> GpuCompiler::RunHloPasses(
   if (DumpingEnabledForHloModule(*module)) {
     ASSIGN_OR_RETURN(
         std::string autotune_results,
-        AutotunerUtil::SerializeAutotuneResults(/*as_textproto=*/true));
+        AutotunerCache::SerializeAutotuneResults(/*as_textproto=*/true));
     DumpToFileInDirOrStdout(*module, "", "autotune_results.pbtxt",
                             autotune_results);
   }
@@ -3090,7 +3091,7 @@ absl::Status GpuCompiler::LoadAutotuneResultsFromFile(
     static absl::once_flag once;
     absl::Status status = absl::OkStatus();
     absl::call_once(once, [&file_path, &status] {
-      status = AutotunerUtil::LoadAutotuneResultsFromFile(file_path);
+      status = AutotunerCache::LoadAutotuneResultsFromFile(file_path);
     });
     RETURN_IF_ERROR(status);
   }
@@ -3105,7 +3106,7 @@ absl::Status GpuCompiler::SerializeAutotuneResultsToFile(
       !file_path.empty()) {
     // Warning: This writes the autotune results at every compilation,
     // possibly multiple times per process.
-    RETURN_IF_ERROR(AutotunerUtil::SerializeAutotuneResultsToFile(file_path));
+    RETURN_IF_ERROR(AutotunerCache::SerializeAutotuneResultsToFile(file_path));
   }
   return absl::OkStatus();
 }
