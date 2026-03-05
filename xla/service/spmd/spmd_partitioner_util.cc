@@ -2220,11 +2220,16 @@ GetReshardAllToAllSourceTargetDims(const HloSharding& source,
 
 bool CanReshardWithCollectivePermute(const HloSharding& source,
                                      const HloSharding& target) {
+  CHECK_EQ(source.UseNamedShardingLeaf(), target.UseNamedShardingLeaf());
+
   return !source.IsReplicatedOrSingleDevice() &&
-         !target.IsReplicatedOrSingleDevice() &&
-         source.dimensions() == target.dimensions() &&
-         source.ReplicateOnLastTileDim() == target.ReplicateOnLastTileDim() &&
-         source.tile_assignment() != target.tile_assignment();
+                 !target.IsReplicatedOrSingleDevice() &&
+                 source.dimensions() == target.dimensions() &&
+                 source.ReplicateOnLastTileDim() ==
+                     target.ReplicateOnLastTileDim() &&
+                 source.UseNamedShardingLeaf()
+             ? source.named_sharding() != target.named_sharding()
+             : source.tile_assignment() != target.tile_assignment();
 }
 
 std::optional<GroupedSharding> AlignGroupsWithInternal(
