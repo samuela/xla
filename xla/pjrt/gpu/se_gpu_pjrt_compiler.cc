@@ -226,8 +226,8 @@ StreamExecutorGpuCompiler::Compile(CompileOptions options,
       std::vector<std::unique_ptr<CompiledModule>> aot_results,
       gpu_compiler->CompileAheadOfTime(std::move(hlo_module), aot_options));
   return std::make_unique<StreamExecutorExecutable>(
-      std::move(input_options), std::move(aot_results), num_replicas,
-      num_partitions, name, fingerprint,
+      pjrt_platform_id_, std::move(input_options), std::move(aot_results),
+      num_replicas, num_partitions, name, fingerprint,
       /*default_memory_kind=*/StreamExecutorGpuHbmMemorySpace::kKind);
 }
 
