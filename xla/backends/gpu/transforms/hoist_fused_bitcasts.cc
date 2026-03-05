@@ -910,11 +910,6 @@ class HoistFusedBitcastsVisitor : public DfsHloRewriteVisitor {
     HloFusionInstruction* fusion = Cast<HloFusionInstruction>(instruction);
 
     // Check if we target this fusion.
-    absl::StatusOr<TritonGemmConfig> config = GetTritonGemmConfig(*fusion);
-    if (!config.ok()) {
-      VLOG(2) << "Skipping fusion as it does not have a TritonGemmConfig";
-      return absl::OkStatus();
-    }
     HloComputation* computation = fusion->called_computation();
     HloInstruction* instr =
         hlo_query::GetFirstInstructionWithOpcode(*computation, HloOpcode::kDot);

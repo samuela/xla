@@ -1465,12 +1465,17 @@ TEST_F(PassOrderTest, GemmRewriterRunsAfterDotNormalizer) {
   VerifyNotRunInBetween(pass_range, /*pass_regex=*/"algsimp");
 }
 
-TEST_F(PassOrderTest, HoistFusedBitcastsRunsAfterAutotuner) {
-  VerifyPassRunsAtLeastOnceBefore("autotuner", "hoist-fused-bitcasts");
+TEST_F(PassOrderTest, HoistFusedBitcastsRunsAfterGemmFusion) {
+  VerifyPassRunsAtLeastOnceBefore("triton-gemm-rewriter",
+                                  "hoist-fused-bitcasts");
 }
 
-TEST_F(PassOrderTest, ConvertTritonGemmConfigRunsAfterHoistFusedBitcasts) {
-  VerifyPassOrder("hoist-fused-bitcasts", "convert_triton_gemm_config");
+TEST_F(PassOrderTest, AutotunerRunsAfterHoistFusedBitcasts) {
+  VerifyPassRunsAtLeastOnceBefore("hoist-fused-bitcasts", "autotuner");
+}
+
+TEST_F(PassOrderTest, ConvertTritonGemmConfigRunsAfterAutotuner) {
+  VerifyPassRunsAtLeastOnceBefore("autotuner", "convert_triton_gemm_config");
 }
 
 TEST_F(PassOrderTest,
