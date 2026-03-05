@@ -181,17 +181,45 @@ class NamedSharding {
     if (!replicated_axes().empty()) {
       return true;
     }
-    int64_t used_elements = 1;
+    return GetTotalNumTiles() < num_devices();
+  }
+
+  int64_t GetNumTiles() const {
+    int64_t num_tiles = 1;
     for (const int64_t dim : dimensions()) {
-      used_elements *= dim;
+      num_tiles *= dim;
+    }
+    return num_tiles;
+  }
+
+  // Like GetNumTiles() but considers only some specific dimensions passed as
+  // the `dims` argument.
+  int64_t GetNumTiles(absl::Span<const int64_t> dims) const {
+    int64_t num_tiles = 1;
+    for (auto d : dims) {
+      CHECK(d < num_dimensions());
+      num_tiles *= dimension(d);
+    }
+    return num_tiles;
+  }
+
+  // Gets the total number of tiles including unreduced, manual and replicated
+  // axes.
+  int64_t GetTotalNumTiles() const {
+    int64_t num_tiles = 1;
+    for (const int64_t dim : dimensions()) {
+      num_tiles *= dim;
     }
     for (const AxisRef& axis : unreduced_axes()) {
-      used_elements *= axis.size(mesh());
+      num_tiles *= axis.size(mesh());
     }
     for (const AxisRef& axis : manual_axes()) {
-      used_elements *= axis.size(mesh());
+      num_tiles *= axis.size(mesh());
     }
-    return used_elements < num_devices();
+    for (const AxisRef& axis : replicated_axes()) {
+      num_tiles *= axis.size(mesh());
+    }
+    return num_tiles;
   }
 
   // Creates a sharding with empty mesh and no sharding axes depicting it is

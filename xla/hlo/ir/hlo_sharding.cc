@@ -1392,11 +1392,16 @@ Shape HloSharding::TileShape(const Shape& shape, int64_t device) const {
 }
 
 int64_t HloSharding::TotalNumTiles() const {
-  if (IsReplicatedOrSingleDevice()) {
+  if (IsReplicatedOrSingleDeviceLeaf()) {
     return 1;
   }
-  CHECK(!IsManual());
-  CHECK(!IsUnknown());
+  CHECK(!IsManualLeaf());
+  CHECK(!IsUnknownLeaf());
+
+  if (UseNamedShardingLeaf()) {
+    return named_sharding_->GetTotalNumTiles();
+  }
+
   return Product(dimensions());
 }
 
@@ -1405,6 +1410,9 @@ int64_t HloSharding::NumTiles() const {
     return 1;
   }
   CHECK(!IsManualLeaf() && !IsUnknownLeaf());
+  if (UseNamedShardingLeaf()) {
+    return named_sharding_->GetNumTiles();
+  }
   return Product(dimensions().subspan(0, TiledDataRank()));
 }
 
@@ -1413,7 +1421,10 @@ int64_t HloSharding::NumTiles(absl::Span<const int64_t> dims) const {
     return 1;
   }
   CHECK(!IsManual());
-  CHECK(!ReplicateOnLastTileDim() ||
+  if (UseNamedShardingLeaf()) {
+    return named_sharding_->GetNumTiles(dims);
+  }
+  CHECK(!HasPartialReplication() ||
         !absl::c_linear_search(dims, num_dimensions() - 1));
   int64_t num_tiles = 1;
   for (auto d : dims) {

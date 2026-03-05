@@ -807,5 +807,100 @@ TEST(NamedShardingPredicatesTest, HasPartialReplication_UnreducedWithSubAxes) {
                    .HasPartialReplication());
 }
 
+TEST(NamedShardingTest, GetNumTilesReplicated) {
+  NamedSharding sharding = NamedSharding::Replicate();
+
+  EXPECT_EQ(sharding.GetNumTiles(), 1);
+}
+
+TEST(NamedShardingTest, GetNumTilesMaximal) {
+  NamedSharding sharding = NamedSharding::MaximalSharding(/*device_id=*/0);
+
+  EXPECT_EQ(sharding.GetNumTiles(), 1);
+}
+
+TEST(NamedShardingTest, GetNumTilesTiled) {
+  Mesh mesh({2, 3, 4}, {"a", "b", "c"});
+  NamedSharding sharding =
+      test_utils::FromAxisNames(mesh, /*dim_shardings=*/{{"a"}, {"b"}, {"c"}});
+
+  EXPECT_EQ(sharding.GetNumTiles(), 24);
+  EXPECT_EQ(sharding.GetNumTiles(/*dims=*/{0}), 2);
+  EXPECT_EQ(sharding.GetNumTiles(/*dims=*/{1}), 3);
+  EXPECT_EQ(sharding.GetNumTiles(/*dims=*/{0, 1}), 6);
+}
+
+TEST(NamedShardingTest, GetNumTilesPartial) {
+  Mesh mesh({2, 3, 4}, {"a", "b", "c"});
+  NamedSharding sharding =
+      test_utils::FromAxisNames(mesh, /*dim_shardings=*/{{"a"}, {"b"}},
+                                /*replicated_axes=*/{"c"});
+
+  EXPECT_EQ(sharding.GetNumTiles(), 6);
+  EXPECT_EQ(sharding.GetNumTiles(/*dims=*/{0}), 2);
+  EXPECT_EQ(sharding.GetNumTiles(/*dims=*/{1}), 3);
+  EXPECT_EQ(sharding.GetNumTiles(/*dims=*/{0, 1}), 6);
+}
+
+TEST(NamedShardingTest, GetNumTilesReplicatedUnreduced) {
+  Mesh mesh({2, 3, 4}, {"a", "b", "c"});
+  NamedSharding sharding =
+      test_utils::FromAxisNames(mesh, /*dim_shardings=*/{{"a"}},
+                                /*replicated_axes=*/{"c"},
+                                /*unreduced_axes=*/{"b"});
+
+  EXPECT_EQ(sharding.GetNumTiles(), 2);
+  EXPECT_EQ(sharding.GetNumTiles(/*dims=*/{0}), 2);
+}
+
+TEST(NamedShardingTest, GetTotalNumTilesReplicated) {
+  NamedSharding sharding = NamedSharding::Replicate();
+
+  EXPECT_EQ(sharding.GetTotalNumTiles(), 1);
+}
+
+TEST(NamedShardingTest, GetTotalNumTilesMaximal) {
+  NamedSharding sharding = NamedSharding::MaximalSharding(/*device_id=*/0);
+
+  EXPECT_EQ(sharding.GetTotalNumTiles(), 1);
+}
+
+TEST(NamedShardingTest, GetTotalNumTilesTiled) {
+  Mesh mesh({2, 3, 4}, {"a", "b", "c"});
+  NamedSharding sharding =
+      test_utils::FromAxisNames(mesh, /*dim_shardings=*/{{"a"}, {"b"}, {"c"}});
+
+  EXPECT_EQ(sharding.GetTotalNumTiles(), 24);
+}
+
+TEST(NamedShardingTest, GetTotalNumTilesPartial) {
+  Mesh mesh({2, 3, 4}, {"a", "b", "c"});
+  NamedSharding sharding =
+      test_utils::FromAxisNames(mesh, /*dim_shardings=*/{{"a"}, {"b"}},
+                                /*replicated_axes=*/{"c"});
+
+  EXPECT_EQ(sharding.GetTotalNumTiles(), 24);
+}
+
+TEST(NamedShardingTest, GetTotalNumTilesReplicatedUnreduced) {
+  Mesh mesh({2, 3, 4}, {"a", "b", "c"});
+  NamedSharding sharding =
+      test_utils::FromAxisNames(mesh, /*dim_shardings=*/{{"a"}},
+                                /*replicated_axes=*/{"c"},
+                                /*unreduced_axes=*/{"b"});
+
+  EXPECT_EQ(sharding.GetTotalNumTiles(), 24);
+}
+
+TEST(NamedShardingTest, GetTotalNumTilesManual) {
+  Mesh mesh({2, 3, 4}, {"a", "b", "c"});
+  NamedSharding sharding =
+      test_utils::FromAxisNames(mesh, /*dim_shardings=*/{{"a"}},
+                                /*replicated_axes=*/{}, /*unreduced_axes=*/{},
+                                /*manual_axes=*/{"b", "c"});
+
+  EXPECT_EQ(sharding.GetTotalNumTiles(), 24);
+}
+
 }  // namespace
 }  // namespace xla
