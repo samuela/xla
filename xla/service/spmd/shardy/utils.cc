@@ -501,7 +501,16 @@ mlir::sdy::TensorShardingAttr convertToSdyShardingAttr(
     const HloSharding& hloSharding, mlir::Type type,
     mlir::MLIRContext* context) {
   CHECK(!hloSharding.IsTuple());
-  CHECK(hloSharding.UseNamedShardingLeaf());
+
+  // TODO: Add comment after discussing this approach
+  if (!hloSharding.UseNamedShardingLeaf()) {
+    if (hloSharding.IsReplicated()) {
+      return mlir::sdy::TensorShardingAttr::getFullyReplicated(
+          context, mlir::sdy::getTensorRank(type),
+          mlir::sdy::MeshAttr::get(context, {}, {}), /*isClosed=*/true);
+    }
+    CHECK(false) << "Expected NamedSharding";
+  }
 
   const NamedSharding& namedSharding = hloSharding.named_sharding();
   if (namedSharding.IsMaximal()) {
@@ -515,9 +524,7 @@ mlir::sdy::TensorShardingAttr convertToSdyShardingAttr(
 
   int64_t rank = mlir::sdy::getTensorRank(type);
   if (namedSharding.IsReplicated()) {
-    return mlir::sdy::TensorShardingAttr::getFullyReplicated(context, rank,
-                                                             meshAttr,
-                                                             /*isClosed=*/true);
+    return mlir::sdy::TensorShardingAttr::getFullyOpen(context, rank, meshAttr);
   }
 
   SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
