@@ -56,6 +56,24 @@ limitations under the License.
 
 namespace xla::gpu {
 namespace {
+
+absl::StatusOr<std::unique_ptr<Thunk>> DeserializeThunkProto(
+    const ThunkProto& thunk_proto,
+    absl::Span<const BufferAllocation> buffer_allocations,
+    const HloModule* absl_nullable hlo_module, absl::string_view platform_name,
+    const se::GpuComputeCapability& gpu_compute_capability,
+    const std::optional<stream_executor::KernelLoaderSpec::SymbolResolver>&
+        symbol_resolver = std::nullopt) {
+  tsl::protobuf::RepeatedPtrField<ThunkProto> thunk_protos;
+  *thunk_protos.Add() = thunk_proto;
+  TF_ASSIGN_OR_RETURN(
+      ThunkSequence sequence,
+      DeserializeThunkSequenceProto(thunk_protos, buffer_allocations,
+                                    hlo_module, platform_name,
+                                    gpu_compute_capability, symbol_resolver));
+  return std::move(sequence.front());
+}
+
 using ::testing::ElementsAre;
 using ::testing::Field;
 using ::testing::IsEmpty;

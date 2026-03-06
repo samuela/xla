@@ -118,10 +118,15 @@ void CheckProtoRoundTrip(const DynamicSliceThunk& thunk,
       [](const ThunkProto& thunk_proto,
          absl::Span<const BufferAllocation> fake_allocations_span)
       -> absl::StatusOr<std::unique_ptr<Thunk>> {
-    return DeserializeThunkProto(thunk_proto, fake_allocations_span,
-                                 /*hlo_module*/ nullptr,
-                                 /*platform_name=*/"TEST_PLATFORM",
-                                 /*gpu_compute_capability=*/{});
+    tsl::protobuf::RepeatedPtrField<ThunkProto> thunk_protos;
+    *thunk_protos.Add() = thunk_proto;
+    TF_ASSIGN_OR_RETURN(
+        ThunkSequence sequence,
+        DeserializeThunkSequenceProto(thunk_protos, fake_allocations_span,
+                                      /*hlo_module=*/nullptr,
+                                      /*platform_name=*/"TEST_PLATFORM",
+                                      /*gpu_compute_capability=*/{}));
+    return std::move(sequence.front());
   };
 
   TF_ASSERT_OK_AND_ASSIGN(
