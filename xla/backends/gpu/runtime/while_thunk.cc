@@ -84,7 +84,8 @@ absl::Status WhileThunk::Initialize(const InitializeParams& params) {
 }
 
 absl::Status WhileThunk::ExecuteOnStream(const ExecuteParams& params) {
-  ScopedWhileLoop loop(loop_->name(), trip_count_);
+  ScopedWhileLoop loop(loop_ ? loop_->name() : profile_annotation(),
+                       trip_count_);
   se::Stream& stream = *params.stream;
 
   int device_ordinal = stream.parent()->device_ordinal();
