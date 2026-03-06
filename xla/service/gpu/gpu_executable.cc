@@ -1532,16 +1532,11 @@ absl::StatusOr<std::unique_ptr<GpuExecutable>> GpuExecutable::FromProto(
 
   params.device_description = device_description;
 
-  ThunkSequence thunk_sequence;
-  thunk_sequence.reserve(proto.thunks_size());
-  for (const auto& thunk_proto : proto.thunks()) {
-    ASSIGN_OR_RETURN(
-        std::unique_ptr<Thunk> thunk,
-        DeserializeThunkProto(thunk_proto, params.mlir_allocations.value(),
-                              params.debug_module.get(), platform_name,
-                              gpu_compute_capability, symbol_resolver));
-    thunk_sequence.push_back(std::move(thunk));
-  }
+  ASSIGN_OR_RETURN(ThunkSequence thunk_sequence,
+                   DeserializeThunkSequenceProto(
+                       proto.thunks(), params.mlir_allocations.value(),
+                       params.debug_module.get(), platform_name,
+                       gpu_compute_capability, symbol_resolver));
 
   params.executable = std::make_unique<SequentialThunk>(
       Thunk::ThunkInfo(), std::move(thunk_sequence));
