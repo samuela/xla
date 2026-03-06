@@ -48,6 +48,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/ir/hlo_sharding.h"
 #include "xla/hlo/ir/mesh_and_axis.h"
+#include "xla/hlo/ir/named_sharding.h"
 #include "xla/hlo/ir/replica_group.h"
 #include "xla/hlo/utils/hlo_sharding_util.h"
 #include "xla/layout.h"
@@ -3124,16 +3125,69 @@ GetMeshAxesPartitionGroupsAcrossTargetDims(
   axis_refs.reserve(target_dims.size());
   for (int64_t i = 0; i < target_dims.size(); ++i) {
     int64_t target_dim = target_dims[i];
-    int64_t axis_size = mesh->axis_size(target_dim);
     int64_t group_size = group_sizes[i];
+    if (group_size <= 1) {
+      continue;
+    }
+
+    // If we have a NamedSharding (V3), we must explicitly look up which mesh
+    // axes the tensor dimension is sharded across.
+    if (sharding.UseNamedShardingLeaf() &&
+        target_dim < sharding.named_sharding().num_dimensions()) {
+      const NamedSharding::DimensionSharding& dim_sharding =
+          sharding.named_sharding().dim_sharding(target_dim);
+      int64_t remaining_group_size = group_size;
+
+      // We consume the axes in reverse order (minor-to-major) to satisfy the
+      // group_size. This follows the convention where the most minor mesh axes
+      // are grouped first.
+      for (auto it = dim_sharding.axes().rbegin();
+           it != dim_sharding.axes().rend(); ++it) {
+        if (remaining_group_size <= 1) {
+          break;
+        }
+
+        const AxisRef& axis = *it;
+        int64_t axis_size = axis.size(*mesh);
+
+        // If the remaining group size covers the entire axis, take the whole
+        // axis.
+        if (remaining_group_size >= axis_size) {
+          axis_refs.push_back(axis);
+          remaining_group_size /= axis_size;
+          continue;
+        }
+
+        // Otherwise, we take a sub-portion of the axis.
+        axis_refs.push_back(
+            AxisRef(axis.mesh_axis_index(),
+                    {axis.pre_size() * (axis_size / remaining_group_size),
+                     remaining_group_size}));
+        remaining_group_size = 1;
+      }
+
+      CHECK_EQ(remaining_group_size, 1)
+          << "Could not satisfy group_size " << group_size << " for target_dim "
+          << target_dim;
+      continue;
+    }
+
+    // For sharding version < V3 we can use positional since mesh axes
+    // correspond to target dims.
+    int64_t axis_size = mesh->axis_size(target_dim);
     if (axis_size == group_size) {
       axis_refs.push_back(AxisRef(target_dim));
       continue;
     }
+    // Partial grouping across a single mesh axis.
     axis_refs.push_back(
         AxisRef(target_dim, {axis_size / group_size, group_size}));
   }
-  return MeshAxesReplicaGroupList(mesh.value(), axis_refs);
+  if (axis_refs.empty()) {
+    return std::nullopt;
+  }
+  SortAndMergeAxes(axis_refs, *mesh);
+  return MeshAxesReplicaGroupList(*mesh, axis_refs);
 }
 
 std::unique_ptr<CollectiveDeviceListBase> GetPartitionGroupsAcrossTargetDims(

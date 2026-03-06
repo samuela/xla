@@ -187,6 +187,84 @@ TEST(SPMDPartitionerUtilTest, GetMeshAxesPartitionGroupsAcrossTargetDims) {
             "mesh['a'=8,'b'=8,'c'=16] {'a':(2)4,'b':(2)4}");
 }
 
+TEST(SPMDPartitionerUtilTest,
+     GetMeshAxesPartitionGroupsAcrossTargetDimsNonPositional) {
+  Mesh mesh({4, 2, 3}, {"a", "b", "c"});
+  // In this non-positional sharding:
+  // - Dimension 0 is sharded across mesh axes "a" and "b" (sharding size 8).
+  // - Dimension 1 is sharded across mesh axis "c" (sharding size 3).
+  NamedSharding::DimensionSharding dim0({AxisRef(0), AxisRef(1)}, true);
+  NamedSharding::DimensionSharding dim1({AxisRef(2)}, true);
+  NamedSharding named_sharding(mesh, {dim0, dim1});
+  HloSharding sharding(named_sharding);
+
+  // Case 1: Group size equals product of all axes in dimension.
+  // We expect to use all mesh axes associated with dim0, which are "a" and "b".
+  std::optional<MeshAxesReplicaGroupList> v3_group_list =
+      GetMeshAxesPartitionGroupsAcrossTargetDims(sharding, {0}, {8});
+  EXPECT_TRUE(v3_group_list.has_value());
+  EXPECT_EQ(v3_group_list->num_replica_groups(), 3);
+  EXPECT_EQ(v3_group_list->num_devices_per_group(), 8);
+  EXPECT_EQ(v3_group_list->ToString(), "mesh['a'=4,'b'=2,'c'=3] {'a','b'}");
+  // Group across dimension 1 with group size 3.
+  // We expect to take the mesh axis associated with dim1, which is "c".
+  v3_group_list =
+      GetMeshAxesPartitionGroupsAcrossTargetDims(sharding, {1}, {3});
+  EXPECT_TRUE(v3_group_list.has_value());
+  EXPECT_EQ(v3_group_list->num_replica_groups(), 8);
+  EXPECT_EQ(v3_group_list->num_devices_per_group(), 3);
+  EXPECT_EQ(v3_group_list->ToString(), "mesh['a'=4,'b'=2,'c'=3] {'c'}");
+
+  // Case 2: Group size != product of all axes in dimension.
+  // The replica group will fully consume the minor most axis, "b", but we need
+  // to take half of the major most axis, "a" to get the desired group size. We
+  // use a sub-axis of "a" which fits the remaining desired group size.
+  v3_group_list =
+      GetMeshAxesPartitionGroupsAcrossTargetDims(sharding, {0}, {4});
+  EXPECT_TRUE(v3_group_list.has_value());
+  EXPECT_EQ(v3_group_list->num_replica_groups(), 6);
+  EXPECT_EQ(v3_group_list->num_devices_per_group(), 4);
+  EXPECT_EQ(v3_group_list->ToString(),
+            "mesh['a'=4,'b'=2,'c'=3] {'a':(2)2,'b'}");
+}
+
+TEST(SPMDPartitionerUtilTest,
+     GetMeshAxesPartitionGroupsAcrossTargetDimsSubAxes) {
+  Mesh mesh({8, 4}, {"a", "b"});
+  // dim0 is sharded over a 16-shard grid using a sub-portion of axis "a" and
+  // the full axis "b".
+  // Specifically:
+  // - "a" (axis 0) is split into [pre=2, size=4, post=1].
+  // - "b" (axis 1) is taken in full (size 4).
+  NamedSharding::DimensionSharding dim0({AxisRef(0, {2, 4}), AxisRef(1)}, true);
+  NamedSharding named_sharding(mesh, {dim0});
+  HloSharding sharding(named_sharding);
+
+  // Case 1: Group size doesn't require splitting of sub-axis for dimension.
+  // Our group size is 2. Since "b" is the most minor axis and has size 4, we
+  // split it into two groups of 2.
+  // The result should be the minor half of "b".
+  std::optional<MeshAxesReplicaGroupList> v3_group_list =
+      GetMeshAxesPartitionGroupsAcrossTargetDims(sharding, {0}, {2});
+  EXPECT_TRUE(v3_group_list.has_value());
+  EXPECT_EQ(v3_group_list->num_replica_groups(), 16);
+  EXPECT_EQ(v3_group_list->num_devices_per_group(), 2);
+  EXPECT_EQ(v3_group_list->ToString(), "mesh['a'=8,'b'=4] {'b':(2)2}");
+
+  // Case 2: Group size doesn't require splitting of sub-axis for dimension.
+  // For this group size (8) we consume the full minor axis of the dimension
+  // ("b") which has size 4. Then we also ned a minor axis from "a" of size 2.
+  // Since the sub-axis of "a" was already halved (pre_size 2, size 4), we slice
+  // it again to get the minor axis for the replica group. This is the sub-axis
+  // of "a" with pre_size 2 * (4/2) = 4 and size 2.
+  v3_group_list =
+      GetMeshAxesPartitionGroupsAcrossTargetDims(sharding, {0}, {8});
+  EXPECT_TRUE(v3_group_list.has_value());
+  EXPECT_EQ(v3_group_list->num_replica_groups(), 4);
+  EXPECT_EQ(v3_group_list->num_devices_per_group(), 8);
+  EXPECT_EQ(v3_group_list->ToString(), "mesh['a'=8,'b'=4] {'a':(4)2,'b'}");
+}
+
 TEST(SPMDPartitionerUtilTest, GetMeshAxesPartitionGroupsForReplication) {
   // V2 Sharding
   HloSharding sharding_v2 = HloSharding::IotaTile({2, 2, 2});
