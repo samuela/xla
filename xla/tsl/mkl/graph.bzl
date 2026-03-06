@@ -30,7 +30,7 @@ def onednn_graph_cc_test(
     """xla_cc_test rule that has empty src and deps if not building with Graph API."""
     xla_cc_test(
         srcs = if_graph_api(srcs),
-        deps = if_graph_api(if_true = deps, if_false = ["@com_google_googletest//:gtest_main"]),
+        deps = if_graph_api(deps),
         # If not building with Graph API, we don't have any tests linked.
         fail_if_no_test_linked = False,
         # If not building with Graph API, we don't have any tests defined either.
@@ -56,7 +56,7 @@ def onednn_cc_test(
     xla_cc_test(
         # CC_TEST_OK=This rule is used in XLA.
         srcs = if_onednn(srcs),
-        deps = if_onednn(if_true = deps, if_false = ["@com_google_googletest//:gtest_main"]),
+        deps = if_onednn(deps),
         # If not building with Graph API, we don't have any tests linked.
         fail_if_no_test_linked = False,
         # If not building with Graph API, we don't have any tests defined either.
