@@ -241,7 +241,7 @@ class NamedSharding {
   bool AllDimShardingsEmpty(
       absl::Span<const DimensionSharding> dim_shardings) const {
     return absl::c_all_of(dim_shardings, [](const DimensionSharding& s) {
-      return s.axes().empty();
+      return s.axes().empty() && s.is_closed();
     });
   }
 
