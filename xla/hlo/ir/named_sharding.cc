@@ -165,18 +165,6 @@ bool DimensionSharding::IsPrefixOf(const DimensionSharding& other,
   return true;
 }
 
-std::vector<std::string> NamedSharding::DimensionSharding::axis_names(
-    const Mesh& mesh) const {
-  std::vector<std::string> names;
-  names.reserve(axes_.size());
-  for (const AxisRef& axis : axes_) {
-    CHECK(!axis.sub_axis_info().has_value())
-        << "axis_names should only be called for non-sub-axis.";
-    names.push_back(std::string(mesh.axis_names()[axis.mesh_axis_index()]));
-  }
-  return names;
-}
-
 int64_t DimensionSharding::getShardedSize(const Mesh& mesh) const {
   return std::accumulate(axes_.begin(), axes_.end(), 1,
                          [&mesh](int64_t cur, const AxisRef& axis) {
@@ -374,6 +362,23 @@ std::ostream& operator<<(std::ostream& out, const DimensionSharding& sharding) {
 
 std::ostream& operator<<(std::ostream& out, const NamedSharding& sharding) {
   return out << sharding.ToString();
+}
+
+std::vector<std::vector<std::string>> NamedSharding::JaxPartitionsSpec() const {
+  std::vector<std::vector<std::string>> partitions;
+  partitions.reserve(dim_shardings_.size());
+  for (const DimensionSharding& dim_sharding : dim_shardings_) {
+    std::vector<std::string> partition;
+    CHECK(dim_sharding.is_closed()) << "jax_partitions_spec should only be "
+                                       "called for closed dimension shardings.";
+    for (const AxisRef& axis : dim_sharding.axes()) {
+      partition.push_back(mesh_.axis_names()[axis.mesh_axis_index()]);
+      CHECK(!axis.sub_axis_info().has_value())
+          << "jax_partitions_spec should only be called for non-sub-axis.";
+    }
+    partitions.push_back(std::move(partition));
+  }
+  return partitions;
 }
 
 namespace test_utils {
