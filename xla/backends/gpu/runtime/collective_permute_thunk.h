@@ -100,9 +100,8 @@ class CollectivePermuteStartThunk : public CollectiveThunk {
                               const std::vector<Buffer>& buffers,
                               bool p2p_memcpy_enabled);
   CollectivePermuteStartThunk(ThunkInfo thunk_info, const P2PConfig& config,
-                              std::shared_ptr<AsyncEvents> async_events,
                               const std::vector<Buffer>& buffers,
-                              bool p2p_memcpy_enabled);
+                              bool p2p_memcpy_enabled, bool is_async);
 
   static P2PConfig GetP2PConfig(const HloCollectivePermuteInstruction* instr,
                                 int64_t replica_count, int64_t partition_count);
@@ -126,7 +125,7 @@ class CollectivePermuteStartThunk : public CollectiveThunk {
   static absl::StatusOr<std::unique_ptr<CollectivePermuteStartThunk>> FromProto(
       ThunkInfo thunk_info, const CollectivePermuteStartThunkProto& thunk_proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 

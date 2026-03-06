@@ -159,10 +159,10 @@ std::unique_ptr<GemmThunk> CreateGemmThunk(const BufferAllocation& alloc1) {
 
 std::unique_ptr<CollectiveDoneThunk> CreateAllGatherDoneThunk(
     Thunk* start_thunk) {
-  auto async_events =
-      static_cast<const AllGatherStartThunk*>(start_thunk)->async_events();
+  auto async_execution =
+      static_cast<const AllGatherStartThunk*>(start_thunk)->async_execution();
   return std::make_unique<CollectiveDoneThunk>(
-      Thunk::kAllGatherDone, Thunk::ThunkInfo(), std::move(async_events));
+      Thunk::kAllGatherDone, Thunk::ThunkInfo(), std::move(async_execution));
 }
 
 std::unique_ptr<WhileThunk> CreateWhileThunk(ThunkSequence condition_thunks,

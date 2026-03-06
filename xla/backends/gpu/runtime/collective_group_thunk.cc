@@ -21,18 +21,19 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/base/casts.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "xla/backends/gpu/collectives/gpu_communicator.h"
+#include "xla/backends/gpu/runtime/async_execution.h"
 #include "xla/backends/gpu/runtime/collective_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/core/collectives/communicator.h"
 #include "xla/future.h"
 #include "xla/service/buffer_assignment.h"
-#include "xla/stream_executor/event.h"
 #include "xla/stream_executor/stream.h"
 #include "tsl/platform/casts.h"
 #include "xla/tsl/platform/status_macros.h"
@@ -40,10 +41,12 @@ limitations under the License.
 namespace xla {
 namespace gpu {
 
-CollectiveGroupThunk::CollectiveGroupThunk(
-    ThunkInfo thunk_info, Thunk::Kind kind, ThunkSequence thunks,
-    std::shared_ptr<CollectiveThunk::AsyncEvents> async_events)
-    : Thunk(kind, std::move(thunk_info)), async_events_(async_events) {
+CollectiveGroupThunk::CollectiveGroupThunk(ThunkInfo thunk_info,
+                                           Thunk::Kind kind,
+                                           ThunkSequence thunks, bool is_async)
+    : Thunk(kind, thunk_info),
+      async_execution_(is_async ? std::make_shared<AsyncExecution>(this)
+                                : nullptr) {
   for (auto& thunk : thunks) {
     thunks_.emplace_back(std::move(thunk));
   }
@@ -55,8 +58,9 @@ absl::Status CollectiveGroupThunk::Prepare(const PrepareParams& params) {
   return absl::OkStatus();
 }
 absl::Status CollectiveGroupThunk::Initialize(const InitializeParams& params) {
-  if (async_events_) {
-    RETURN_IF_ERROR(async_events_->Initialize(params.executor));
+  if (async_execution_) {
+    RETURN_IF_ERROR(async_execution_->Initialize(params.execution_scoped_state,
+                                                 params.executor));
   }
   for (const std::unique_ptr<Thunk>& thunk : thunks_) {
     RETURN_IF_ERROR(thunk->Initialize(params));
@@ -72,7 +76,13 @@ absl::Status CollectiveGroupThunk::ExecuteOnStream(
   // elements to index by the AsyncStreamKind enum.
   se::Stream* async_stream =
       params.collective_params->async_streams.at(async_stream_idx);
-  RETURN_IF_ERROR(async_stream->WaitFor(params.stream));
+
+  // Start() does async_stream->WaitFor(stream) + returns Guard that records
+  // event on async_stream when it goes out of scope.
+  ASSIGN_OR_RETURN(auto guard,
+                   async_execution_->Start(params.collective_params->run_id,
+                                           params.execution_scoped_state,
+                                           params.stream, async_stream));
 
   // Gather the set of all communicators. There should be only one.
   absl::flat_hash_set<Communicator*> communicator_set;
@@ -103,10 +113,7 @@ absl::Status CollectiveGroupThunk::ExecuteOnStream(
       });
   RETURN_IF_ERROR(group_future.Await());
 
-  ASSIGN_OR_RETURN(se::Event * event,
-                   async_events_->GetEvent(params.stream->parent()));
-  RETURN_IF_ERROR(async_stream->RecordEvent(event));
-
+  // Guard destructor records event on async_stream.
   return absl::OkStatus();
 }
 
@@ -129,7 +136,7 @@ absl::StatusOr<std::unique_ptr<CollectiveGroupThunk>>
 CollectiveGroupThunk::FromProto(
     ThunkInfo thunk_info, const CollectiveGroupThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map,
+    CollectiveThunk::AsyncExecutionMap& async_execution_map,
     const Deserializer& deserializer) {
   ThunkSequence thunk_sequence;
   for (const auto& sub_thunk_proto : thunk_proto.thunks()) {
@@ -138,22 +145,26 @@ CollectiveGroupThunk::FromProto(
     thunk_sequence.push_back(std::move(sub_thunk));
   }
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
-
   ASSIGN_OR_RETURN(Thunk::Kind kind,
                    Thunk::KindFromProto(thunk_proto.thunk_kind()));
 
-  return std::make_unique<CollectiveGroupThunk>(
-      std::move(thunk_info), kind, std::move(thunk_sequence), async_events);
+  bool is_async = thunk_proto.has_async_events_unique_id();
+  auto thunk = std::make_unique<CollectiveGroupThunk>(
+      std::move(thunk_info), kind, std::move(thunk_sequence), is_async);
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
+}
+
+std::optional<AsyncExecutionId> CollectiveGroupThunk::GetAsyncExecutionId()
+    const {
+  if (!async_execution_) {
+    return std::nullopt;
+  }
+  // We rely on the fact that the pointer to async_execution_ is unique.
+  return absl::bit_cast<AsyncExecutionId>(async_execution_.get());
 }
 
 absl::StatusOr<ThunkProto> CollectiveGroupThunk::ToProto() const {
@@ -163,9 +174,9 @@ absl::StatusOr<ThunkProto> CollectiveGroupThunk::ToProto() const {
   CollectiveGroupThunkProto* thunk_proto =
       proto.mutable_collective_group_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
   thunk_proto->set_thunk_kind(Thunk::KindToProto(kind()));
 

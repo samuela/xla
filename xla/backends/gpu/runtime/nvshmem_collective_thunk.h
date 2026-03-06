@@ -22,6 +22,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "xla/backends/gpu/collectives/gpu_collectives.h"
+#include "xla/backends/gpu/runtime/async_execution.h"
 #include "xla/backends/gpu/runtime/collective_thunk.h"
 #include "xla/backends/gpu/runtime/nvshmem_collective_thunk.pb.h"
 #include "xla/backends/gpu/runtime/thunk.h"
@@ -49,20 +50,23 @@ class NvshmemCollectiveThunk : public Thunk {
 
   absl::Status ExecuteOnStream(const ExecuteParams& params) override;
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events() const {
-    return async_events_;
-  }
-  void set_async_events(
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events) {
-    async_events_ = async_events;
+  std::shared_ptr<AsyncExecution> async_execution() const {
+    return async_execution_;
   }
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  // Replaces the async execution state with the given one. This is used for
+  // pipelined send/recv where multiple thunks for the same canonical
+  // instruction must share the same AsyncExecution.
+  void set_async_execution(std::shared_ptr<AsyncExecution> async_execution) {
+    async_execution_ = std::move(async_execution);
+  }
 
-  bool IsAsyncStart() const override { return async_events_ != nullptr; }
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
+
+  bool IsAsyncStart() const override { return async_execution_ != nullptr; }
 
  protected:
-  NvshmemCollectiveThunk(Kind kind, ThunkInfo thunk_info, bool is_sync);
+  NvshmemCollectiveThunk(Kind kind, ThunkInfo thunk_info, bool is_async);
 
   virtual absl::Status RunNvshmemCollective(const ExecuteParams& params,
                                             se::Stream& stream) = 0;
@@ -72,8 +76,8 @@ class NvshmemCollectiveThunk : public Thunk {
   }
 
  private:
-  bool IsAsync() const { return async_events_ != nullptr; }
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events_;
+  bool IsAsync() const { return async_execution_ != nullptr; }
+  std::shared_ptr<AsyncExecution> async_execution_;
 };
 
 //===----------------------------------------------------------------------===//
@@ -82,9 +86,8 @@ class NvshmemCollectiveThunk : public Thunk {
 
 class NvshmemCollectiveDoneThunk : public Thunk {
  public:
-  NvshmemCollectiveDoneThunk(
-      Thunk::Kind kind, ThunkInfo thunk_info,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+  NvshmemCollectiveDoneThunk(Thunk::Kind kind, ThunkInfo thunk_info,
+                             std::shared_ptr<AsyncExecution> async_execution);
 
   absl::Status ExecuteOnStream(const ExecuteParams& params) override;
 
@@ -92,14 +95,14 @@ class NvshmemCollectiveDoneThunk : public Thunk {
 
   static absl::StatusOr<std::unique_ptr<NvshmemCollectiveDoneThunk>> FromProto(
       ThunkInfo thunk_info, const NvshmemCollectiveDoneThunkProto& thunk_proto,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
-  bool IsAsyncDone() const override { return async_events_ != nullptr; }
+  bool IsAsyncDone() const override { return async_execution_ != nullptr; }
 
  private:
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events_;
+  std::shared_ptr<AsyncExecution> async_execution_;
 };
 
 //===----------------------------------------------------------------------===//

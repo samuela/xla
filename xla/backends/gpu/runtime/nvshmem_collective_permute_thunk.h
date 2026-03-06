@@ -65,7 +65,7 @@ class NvshmemCollectivePermuteStartThunk : public NvshmemCollectiveThunk {
   FromProto(ThunkInfo thunk_info,
             const NvshmemCollectivePermuteStartThunkProto& thunk_proto,
             absl::Span<const BufferAllocation> buffer_allocations,
-            CollectiveThunk::AsyncEventsMap& async_events_map);
+            CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
  protected:
   const CollectiveConfig& config() const override { return config_.config; }
@@ -76,7 +76,7 @@ class NvshmemCollectivePermuteStartThunk : public NvshmemCollectiveThunk {
   NvshmemCollectivePermuteStartThunk(
       ThunkInfo thunk_info, P2PConfig config,
       std::vector<CollectiveThunk::Buffer> buffers, bool p2p_memcpy_enabled,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+      bool is_async);
 
   const P2PConfig config_;
   const std::vector<CollectiveThunk::Buffer> buffers_;
@@ -87,8 +87,7 @@ class NvshmemCollectivePermuteStartThunk : public NvshmemCollectiveThunk {
 class NvshmemCollectivePermuteDoneThunk : public NvshmemCollectiveDoneThunk {
  public:
   NvshmemCollectivePermuteDoneThunk(
-      ThunkInfo thunk_info,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+      ThunkInfo thunk_info, std::shared_ptr<AsyncExecution> async_execution);
 
   absl::Status ExecuteOnStream(const ExecuteParams& params) override;
 
@@ -97,7 +96,7 @@ class NvshmemCollectivePermuteDoneThunk : public NvshmemCollectiveDoneThunk {
   static absl::StatusOr<std::unique_ptr<NvshmemCollectivePermuteDoneThunk>>
   FromProto(ThunkInfo thunk_info,
             const NvshmemCollectivePermuteDoneThunkProto& thunk_proto,
-            CollectiveThunk::AsyncEventsMap& async_events_map);
+            CollectiveThunk::AsyncExecutionMap& async_execution_map);
 };
 
 absl::Status RunCollectivePermute(P2PConfig::SourceTargetMapEntry source_target,

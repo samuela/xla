@@ -17,6 +17,7 @@ limitations under the License.
 #define XLA_BACKENDS_GPU_RUNTIME_COLLECTIVE_GROUP_THUNK_H_
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "absl/functional/function_ref.h"
@@ -36,10 +37,8 @@ namespace gpu {
 // all collective implementations.
 class CollectiveGroupThunk : public Thunk {
  public:
-  CollectiveGroupThunk(
-      ThunkInfo thunk_info, Thunk::Kind kind, ThunkSequence thunks,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events =
-          std::make_shared<CollectiveThunk::AsyncEvents>());
+  CollectiveGroupThunk(ThunkInfo thunk_info, Thunk::Kind kind,
+                       ThunkSequence thunks, bool is_async = true);
   absl::Status Prepare(const PrepareParams& params) override;
   absl::Status ExecuteOnStream(const Thunk::ExecuteParams& params) override;
   absl::Status Initialize(const InitializeParams& params) override;
@@ -47,21 +46,23 @@ class CollectiveGroupThunk : public Thunk {
   absl::Status WalkNested(Walker callback) override;
   absl::Status TransformNested(Transformer callback) override;
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events() const {
-    return async_events_;
+  std::shared_ptr<AsyncExecution> async_execution() const {
+    return async_execution_;
   }
 
   static absl::StatusOr<std::unique_ptr<CollectiveGroupThunk>> FromProto(
       ThunkInfo thunk_info, const CollectiveGroupThunkProto& thunk_proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      CollectiveThunk::AsyncEventsMap& async_events_map,
+      CollectiveThunk::AsyncExecutionMap& async_execution_map,
       const Deserializer& deserializer);
+
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 
  private:
   ThunkSequence thunks_;
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events_;
+  std::shared_ptr<AsyncExecution> async_execution_;
 };
 
 }  // namespace gpu

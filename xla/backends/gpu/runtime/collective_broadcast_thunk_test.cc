@@ -125,16 +125,12 @@ ENTRY test_computation {
   };
 
   // ThunkSequence Creation
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events =
-      std::make_shared<CollectiveThunk::AsyncEvents>();
-
   auto cb_start_thunk = std::make_unique<CollectiveBroadcastStartThunk>(
       Thunk::ThunkInfo{}, cb_instr, std::move(buffers));
 
-  cb_start_thunk->set_async_events(async_events);
-
   auto cb_done_thunk = std::make_unique<CollectiveDoneThunk>(
-      Kind::kCollectiveBroadcastDone, Thunk::ThunkInfo{}, async_events);
+      Kind::kCollectiveBroadcastDone, Thunk::ThunkInfo{},
+      cb_start_thunk->async_execution());
 
   ThunkSequence thunk_sequence;
   thunk_sequence.push_back(std::move(cb_start_thunk));
@@ -232,15 +228,15 @@ TEST(CollectiveThunkTest, ProtoRoundTrip) {
       static_cast<xla::gpu::ExecutionStreamId::ValueType>(
           proto.thunk_info().execution_stream_id())};
 
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
   std::vector<BufferAllocation> buffer_allocations = {
       BufferAllocation(/*index=*/0, /*size=*/4, /*color=*/0)};
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CollectiveBroadcastStartThunk> thunk,
                        CollectiveBroadcastStartThunk::FromProto(
                            thunk_info, proto.collective_broadcast_start_thunk(),
-                           buffer_allocations, async_events_map));
-  ASSERT_NE(thunk->async_events(), nullptr);
+                           buffer_allocations, async_execution_map));
+  ASSERT_NE(thunk->async_execution(), nullptr);
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 

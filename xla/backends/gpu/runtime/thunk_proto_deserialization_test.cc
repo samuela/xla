@@ -926,15 +926,15 @@ TEST(ThunkProtoDeserializationTest, HostSendRecvThunksRoundTrip) {
       dynamic_cast<HostRecvDoneThunk*>(sequential_thunk->thunks()[3].get());
   ASSERT_NE(recv_done_thunk, nullptr);
 
-  EXPECT_TRUE(send_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_TRUE(send_done_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_EQ(send_thunk->GetAsyncEventsUniqueId(),
-            send_done_thunk->GetAsyncEventsUniqueId());
+  EXPECT_TRUE(send_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_TRUE(send_done_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_EQ(send_thunk->GetAsyncExecutionId(),
+            send_done_thunk->GetAsyncExecutionId());
 
-  EXPECT_TRUE(recv_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_TRUE(recv_done_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_EQ(recv_thunk->GetAsyncEventsUniqueId(),
-            recv_done_thunk->GetAsyncEventsUniqueId());
+  EXPECT_TRUE(recv_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_TRUE(recv_done_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_EQ(recv_thunk->GetAsyncExecutionId(),
+            recv_done_thunk->GetAsyncExecutionId());
 
   // The unique id is regenerated on deserialization. Overwrite it with the
   // original value for the purpose of the roundtrip test.
@@ -997,10 +997,10 @@ TEST(ThunkProtoDeserializationTest, HostExecuteThunksRoundTrip) {
       dynamic_cast<HostExecuteDoneThunk*>(sequential_thunk->thunks()[1].get());
   ASSERT_NE(done_thunk, nullptr);
 
-  EXPECT_TRUE(start_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_TRUE(done_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_EQ(start_thunk->GetAsyncEventsUniqueId(),
-            done_thunk->GetAsyncEventsUniqueId());
+  EXPECT_TRUE(start_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_TRUE(done_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_EQ(start_thunk->GetAsyncExecutionId(),
+            done_thunk->GetAsyncExecutionId());
 
   // The unique id is regenerated on deserialization. Overwrite it with the
   // original value for the purpose of the roundtrip test.
@@ -1182,10 +1182,10 @@ TEST(ThunkProtoDeserializationTest, HostToDeviceCopyThunksRoundTrip) {
       dynamic_cast<CopyDoneThunk*>(sequential_thunk->thunks()[1].get());
   ASSERT_NE(done_thunk, nullptr);
 
-  EXPECT_TRUE(start_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_TRUE(done_thunk->GetAsyncEventsUniqueId().has_value());
-  EXPECT_EQ(start_thunk->GetAsyncEventsUniqueId(),
-            done_thunk->GetAsyncEventsUniqueId());
+  EXPECT_TRUE(start_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_TRUE(done_thunk->GetAsyncExecutionId().has_value());
+  EXPECT_EQ(start_thunk->GetAsyncExecutionId(),
+            done_thunk->GetAsyncExecutionId());
 
   // The unique id is regenerated on deserialization. Overwrite it with the
   // original value for the purpose of the roundtrip test.

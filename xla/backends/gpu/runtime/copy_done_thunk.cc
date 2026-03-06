@@ -56,7 +56,7 @@ absl::StatusOr<ThunkProto> CopyDoneThunk::ToProto() const {
   *proto.mutable_thunk_info() = thunk_info().ToProto();
 
   CopyDoneThunkProto* copy_done_thunk_proto = proto.mutable_copy_done_thunk();
-  if (auto id = GetAsyncEventsUniqueId()) {
+  if (auto id = GetAsyncExecutionId()) {
     copy_done_thunk_proto->set_async_events_unique_id(id->value());
   }
   copy_done_thunk_proto->set_copy_start_instr_id(copy_start_instr_id_);
@@ -66,11 +66,11 @@ absl::StatusOr<ThunkProto> CopyDoneThunk::ToProto() const {
 
 absl::StatusOr<std::unique_ptr<CopyDoneThunk>> CopyDoneThunk::FromProto(
     ThunkInfo thunk_info, const CopyDoneThunkProto& thunk_proto,
-    CopyThunk::AsyncEventsMap& async_events_map) {
+    CopyThunk::AsyncExecutionMap& async_execution_map) {
   std::shared_ptr<CopyThunk::AsyncEvents> async_events;
   if (thunk_proto.has_async_events_unique_id()) {
-    auto [async_event_it, _] = async_events_map.try_emplace(
-        AsyncEventsUniqueId(thunk_proto.async_events_unique_id()),
+    auto [async_event_it, _] = async_execution_map.try_emplace(
+        AsyncExecutionId(thunk_proto.async_events_unique_id()),
         std::make_shared<CopyThunk::AsyncEvents>());
     async_events = async_event_it->second;
   }
@@ -79,13 +79,12 @@ absl::StatusOr<std::unique_ptr<CopyDoneThunk>> CopyDoneThunk::FromProto(
                                          thunk_proto.copy_start_instr_id());
 }
 
-std::optional<AsyncEventsUniqueId> CopyDoneThunk::GetAsyncEventsUniqueId()
-    const {
+std::optional<AsyncExecutionId> CopyDoneThunk::GetAsyncExecutionId() const {
   if (!async_events_) {
     return std::nullopt;
   }
   // We rely on the fact that the pointer to async_events_ is unique.
-  return absl::bit_cast<AsyncEventsUniqueId>(async_events_.get());
+  return absl::bit_cast<AsyncExecutionId>(async_events_.get());
 }
 
 }  // namespace gpu

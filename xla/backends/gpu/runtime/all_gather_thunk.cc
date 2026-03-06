@@ -72,11 +72,11 @@ absl::Status CheckImplementableInst(const HloAllGatherInstruction* inst) {
 }
 }  // namespace
 
-AllGatherStartThunk::AllGatherStartThunk(
-    ThunkInfo thunk_info,
-    std::shared_ptr<CollectiveThunk::AsyncEvents> async_events,
-    CollectiveConfig config, std::vector<Buffer> buffers)
-    : CollectiveThunk(Thunk::kAllGatherStart, thunk_info, async_events, false),
+AllGatherStartThunk::AllGatherStartThunk(ThunkInfo thunk_info,
+                                         CollectiveConfig config,
+                                         std::vector<Buffer> buffers,
+                                         bool is_async)
+    : CollectiveThunk(Thunk::kAllGatherStart, thunk_info, is_async, false),
       config_(AllGatherConfig{config}),
       buffers_(std::move(buffers)) {}
 
@@ -85,7 +85,7 @@ AllGatherStartThunk::AllGatherStartThunk(ThunkInfo thunk_info,
                                          std::vector<Buffer> buffers,
                                          bool p2p_memcpy_enabled)
     : CollectiveThunk(Thunk::kAllGatherStart, thunk_info,
-                      IsGPUSyncCollective(*inst), false),
+                      !IsGPUSyncCollective(*inst), false),
       config_(GetAllGatherConfig(inst)),
       buffers_(std::move(buffers)) {
   CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
@@ -107,7 +107,7 @@ absl::StatusOr<std::unique_ptr<AllGatherStartThunk>>
 AllGatherStartThunk::FromProto(
     ThunkInfo thunk_info, const AllGatherStartThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
   std::vector<CollectiveThunk::Buffer> buffers;
   buffers.reserve(thunk_proto.buffers_size());
   for (const CollectiveBufferProto& proto : thunk_proto.buffers()) {
@@ -117,21 +117,17 @@ AllGatherStartThunk::FromProto(
     buffers.push_back(buffer);
   }
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
+  bool is_async = thunk_proto.has_async_events_unique_id();
 
-  return std::make_unique<AllGatherStartThunk>(
-      std::move(thunk_info), async_events,
+  auto thunk = std::make_unique<AllGatherStartThunk>(
+      std::move(thunk_info),
       CollectiveConfig::FromProto(thunk_proto.collective_config()),
-      std::move(buffers));
+      std::move(buffers), is_async);
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
 }
 
 absl::StatusOr<ThunkProto> AllGatherStartThunk::ToProto() const {
@@ -141,9 +137,9 @@ absl::StatusOr<ThunkProto> AllGatherStartThunk::ToProto() const {
   AllGatherStartThunkProto* thunk_proto =
       proto.mutable_all_gather_start_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
 
   for (const Buffer& buffer : buffers_) {

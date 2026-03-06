@@ -50,11 +50,7 @@ class AllReduceReduceScatterThunkBase : public CollectiveThunk {
  public:
   AllReduceReduceScatterThunkBase(Kind kind, ThunkInfo thunk_info,
                                   AllReduceConfig config,
-                                  std::vector<Buffer> buffers, bool is_sync);
-  AllReduceReduceScatterThunkBase(
-      Kind kind, ThunkInfo thunk_info, AllReduceConfig config,
-      std::vector<Buffer> buffers,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+                                  std::vector<Buffer> buffers, bool is_async);
 
   const CollectiveConfig& config() const override { return config_.config; }
   ReductionKind reduction_kind() const { return config_.reduction_kind; }
@@ -93,7 +89,7 @@ class AllReduceStartThunk : public AllReduceReduceScatterThunkBase {
       ThunkInfo thunk_info, const AllReduceConfig& config,
       std::vector<Buffer> buffers,
       std::unique_ptr<CollectiveKernelThunk> collective_kernel_thunk,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+      bool is_async);
 
   static absl::string_view GetHloOpName() { return "all-reduce-start"; }
 
@@ -110,7 +106,7 @@ class AllReduceStartThunk : public AllReduceReduceScatterThunkBase {
   static absl::StatusOr<std::unique_ptr<AllReduceStartThunk>> FromProto(
       ThunkInfo thunk_info, const AllReduceStartThunkProto& thunk_proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 
@@ -134,10 +130,8 @@ class ReduceScatterStartThunk : public AllReduceReduceScatterThunkBase {
                           const HloReduceScatterInstruction* inst,
                           std::vector<Buffer> buffers,
                           bool p2p_memcpy_enabled = false);
-  ReduceScatterStartThunk(
-      ThunkInfo thunk_info, const AllReduceConfig& config,
-      std::vector<Buffer> buffers,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+  ReduceScatterStartThunk(ThunkInfo thunk_info, const AllReduceConfig& config,
+                          std::vector<Buffer> buffers, bool is_async);
 
   static absl::string_view GetHloOpName() { return "reduce-scatter-start"; }
 
@@ -151,7 +145,7 @@ class ReduceScatterStartThunk : public AllReduceReduceScatterThunkBase {
   static absl::StatusOr<std::unique_ptr<ReduceScatterStartThunk>> FromProto(
       ThunkInfo thunk_info, const ReduceScatterStartThunkProto& thunk_proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 

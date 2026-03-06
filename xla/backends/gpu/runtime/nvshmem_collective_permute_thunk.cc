@@ -50,6 +50,7 @@ limitations under the License.
 #include "xla/stream_executor/stream.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
+#include "xla/util.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
@@ -61,7 +62,7 @@ NvshmemCollectivePermuteStartThunk::NvshmemCollectivePermuteStartThunk(
     const std::vector<CollectiveThunk::Buffer>& buffers,
     bool p2p_memcpy_enabled)
     : NvshmemCollectiveThunk(Thunk::kNvshmemCollectivePermuteStart, thunk_info,
-                             IsGPUSyncCollective(*instr)),
+                             !IsGPUSyncCollective(*instr)),
       config_(GetNvshmemP2PConfig(instr, replica_count, partition_count)),
       buffers_(buffers),
       p2p_memcpy_enabled_(p2p_memcpy_enabled) {}
@@ -128,15 +129,12 @@ absl::Status NvshmemCollectivePermuteStartThunk::Initialize(
 NvshmemCollectivePermuteStartThunk::NvshmemCollectivePermuteStartThunk(
     ThunkInfo thunk_info, P2PConfig config,
     std::vector<CollectiveThunk::Buffer> buffers, bool p2p_memcpy_enabled,
-    std::shared_ptr<CollectiveThunk::AsyncEvents> async_events)
+    bool is_async)
     : NvshmemCollectiveThunk(Thunk::kNvshmemCollectivePermuteStart,
-                             std::move(thunk_info),
-                             /*is_sync=*/async_events == nullptr),
+                             std::move(thunk_info), is_async),
       config_(std::move(config)),
       buffers_(std::move(buffers)),
-      p2p_memcpy_enabled_(p2p_memcpy_enabled) {
-  set_async_events(std::move(async_events));
-}
+      p2p_memcpy_enabled_(p2p_memcpy_enabled) {}
 
 absl::StatusOr<ThunkProto> NvshmemCollectivePermuteStartThunk::ToProto() const {
   ThunkProto proto;
@@ -145,9 +143,9 @@ absl::StatusOr<ThunkProto> NvshmemCollectivePermuteStartThunk::ToProto() const {
   NvshmemCollectivePermuteStartThunkProto* thunk_proto =
       proto.mutable_nvshmem_collective_permute_start_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
 
   *thunk_proto->mutable_p2p_config() = P2PConfigToProto(config_);
@@ -166,7 +164,7 @@ NvshmemCollectivePermuteStartThunk::FromProto(
     ThunkInfo thunk_info,
     const NvshmemCollectivePermuteStartThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
   std::vector<CollectiveThunk::Buffer> buffers;
   buffers.reserve(thunk_proto.buffers_size());
   for (const CollectiveBufferProto& buffer_proto : thunk_proto.buffers()) {
@@ -175,24 +173,20 @@ NvshmemCollectivePermuteStartThunk::FromProto(
         CollectiveThunk::Buffer::FromProto(buffer_proto, buffer_allocations));
   }
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
+  bool is_async = thunk_proto.has_async_events_unique_id();
 
   TF_ASSIGN_OR_RETURN(P2PConfig config,
                       P2PConfigFromProto(thunk_proto.p2p_config()));
 
-  return absl::WrapUnique<NvshmemCollectivePermuteStartThunk>(
+  auto thunk = absl::WrapUnique<NvshmemCollectivePermuteStartThunk>(
       new NvshmemCollectivePermuteStartThunk(
           std::move(thunk_info), std::move(config), std::move(buffers),
-          thunk_proto.p2p_memcpy_enabled(), async_events));
+          thunk_proto.p2p_memcpy_enabled(), is_async));
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
 }
 
 absl::Status NvshmemCollectivePermuteStartThunk::RunNvshmemCollective(
@@ -316,10 +310,9 @@ absl::Status RunCollectivePermute(P2PConfig::SourceTargetMapEntry source_target,
 }
 
 NvshmemCollectivePermuteDoneThunk::NvshmemCollectivePermuteDoneThunk(
-    ThunkInfo thunk_info,
-    std::shared_ptr<CollectiveThunk::AsyncEvents> async_events)
+    ThunkInfo thunk_info, std::shared_ptr<AsyncExecution> async_execution)
     : NvshmemCollectiveDoneThunk(Thunk::kNvshmemCollectivePermuteDone,
-                                 std::move(thunk_info), async_events) {}
+                                 std::move(thunk_info), async_execution) {}
 
 absl::StatusOr<ThunkProto> NvshmemCollectivePermuteDoneThunk::ToProto() const {
   ThunkProto thunk_proto;
@@ -327,9 +320,9 @@ absl::StatusOr<ThunkProto> NvshmemCollectivePermuteDoneThunk::ToProto() const {
 
   NvshmemCollectivePermuteDoneThunkProto* proto =
       thunk_proto.mutable_nvshmem_collective_permute_done_thunk();
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    proto->set_async_events_unique_id(async_execution_id->value());
   }
   return thunk_proto;
 }
@@ -337,19 +330,20 @@ absl::StatusOr<ThunkProto> NvshmemCollectivePermuteDoneThunk::ToProto() const {
 absl::StatusOr<std::unique_ptr<NvshmemCollectivePermuteDoneThunk>>
 NvshmemCollectivePermuteDoneThunk::FromProto(
     ThunkInfo thunk_info, const NvshmemCollectivePermuteDoneThunkProto& proto,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
+  std::shared_ptr<AsyncExecution> async_execution;
   if (proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
+    auto it = async_execution_map.find(
+        AsyncExecutionId{proto.async_events_unique_id()});
+    if (it == async_execution_map.end()) {
+      return xla::Internal(
+          "Start thunk must be deserialized before done thunk");
     }
-    async_events = events;
+    async_execution = it->second;
   }
 
   return std::make_unique<NvshmemCollectivePermuteDoneThunk>(
-      std::move(thunk_info), async_events);
+      std::move(thunk_info), async_execution);
 }
 
 absl::Status NvshmemCollectivePermuteDoneThunk::ExecuteOnStream(

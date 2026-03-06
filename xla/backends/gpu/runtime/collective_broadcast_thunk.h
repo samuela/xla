@@ -58,14 +58,13 @@ class CollectiveBroadcastStartThunk : public CollectiveThunk {
                                 std::vector<Buffer> buffers,
                                 bool p2p_memcpy_enabled = false);
   CollectiveBroadcastStartThunk(ThunkInfo thunk_info, CollectiveConfig config,
-                                std::shared_ptr<AsyncEvents> async_events,
-                                std::vector<Buffer> buffers);
+                                std::vector<Buffer> buffers, bool is_async);
 
   static absl::StatusOr<std::unique_ptr<CollectiveBroadcastStartThunk>>
   FromProto(ThunkInfo thunk_info,
             const CollectiveBroadcastStartThunkProto& thunk_proto,
             absl::Span<const BufferAllocation> buffer_allocations,
-            CollectiveThunk::AsyncEventsMap& async_events_map);
+            CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 

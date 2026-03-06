@@ -66,17 +66,17 @@ TEST(CopyDoneThunkTest, FromProto) {
   thunk_info.profile_annotation = "profile_annotation";
   thunk_info.execution_stream_id = 123;
 
-  CopyThunk::AsyncEventsMap async_events_map;
+  CopyThunk::AsyncExecutionMap async_execution_map;
   // Pre-populate map to check linkage
-  async_events_map[AsyncEventsUniqueId{unique_id}] = existing_events;
+  async_execution_map[AsyncExecutionId{unique_id}] = existing_events;
 
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<CopyDoneThunk> thunk,
       CopyDoneThunk::FromProto(thunk_info, proto.copy_done_thunk(),
-                               async_events_map));
+                               async_execution_map));
 
   EXPECT_EQ(thunk->kind(), Thunk::kCopyDone);
-  EXPECT_EQ(thunk->GetAsyncEventsUniqueId()->value(), unique_id);
+  EXPECT_EQ(thunk->GetAsyncExecutionId()->value(), unique_id);
 }
 
 }  // namespace

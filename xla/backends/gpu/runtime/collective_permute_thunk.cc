@@ -92,19 +92,16 @@ CollectivePermuteStartThunk::CollectivePermuteStartThunk(
     ThunkInfo thunk_info, const HloCollectivePermuteInstruction* instr,
     int64_t replica_count, int64_t partition_count,
     const std::vector<Buffer>& buffers, bool p2p_memcpy_enabled)
-    : CollectivePermuteStartThunk(
-          std::move(thunk_info),
-          GetP2PConfig(instr, replica_count, partition_count),
-          IsGPUSyncCollective(*instr)
-              ? nullptr
-              : std::make_shared<CollectiveThunk::AsyncEvents>(),
-          buffers, p2p_memcpy_enabled) {}
+    : CollectiveThunk(Thunk::kCollectivePermuteStart, thunk_info,
+                      !IsGPUSyncCollective(*instr), p2p_memcpy_enabled),
+      config_(GetP2PConfig(instr, replica_count, partition_count)),
+      buffers_(buffers),
+      p2p_memcpy_enabled_(p2p_memcpy_enabled) {}
 
 CollectivePermuteStartThunk::CollectivePermuteStartThunk(
     ThunkInfo thunk_info, const P2PConfig& config,
-    std::shared_ptr<AsyncEvents> async_events,
-    const std::vector<Buffer>& buffers, bool p2p_memcpy_enabled)
-    : CollectiveThunk(Thunk::kCollectivePermuteStart, thunk_info, async_events,
+    const std::vector<Buffer>& buffers, bool p2p_memcpy_enabled, bool is_async)
+    : CollectiveThunk(Thunk::kCollectivePermuteStart, thunk_info, is_async,
                       p2p_memcpy_enabled),
       config_(config),
       buffers_(buffers),
@@ -247,7 +244,7 @@ absl::StatusOr<std::unique_ptr<CollectivePermuteStartThunk>>
 CollectivePermuteStartThunk::FromProto(
     ThunkInfo thunk_info, const CollectivePermuteStartThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
   std::vector<CollectiveThunk::Buffer> buffers;
   buffers.reserve(thunk_proto.buffers_size());
   for (const CollectiveBufferProto& proto : thunk_proto.buffers()) {
@@ -257,16 +254,7 @@ CollectivePermuteStartThunk::FromProto(
     buffers.push_back(buffer);
   }
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
+  bool is_async = thunk_proto.has_async_events_unique_id();
 
   CollectiveConfig config =
       CollectiveConfig::FromProto(thunk_proto.collective_config());
@@ -279,9 +267,14 @@ CollectivePermuteStartThunk::FromProto(
         .first->second.target = source_target.target();
   }
 
-  return std::make_unique<CollectivePermuteStartThunk>(
+  auto thunk = std::make_unique<CollectivePermuteStartThunk>(
       std::move(thunk_info), P2PConfig{config, std::move(id_to_source_target)},
-      async_events, std::move(buffers), thunk_proto.p2p_memcpy_enabled());
+      std::move(buffers), thunk_proto.p2p_memcpy_enabled(), is_async);
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
 }
 
 absl::StatusOr<ThunkProto> CollectivePermuteStartThunk::ToProto() const {
@@ -291,9 +284,9 @@ absl::StatusOr<ThunkProto> CollectivePermuteStartThunk::ToProto() const {
   CollectivePermuteStartThunkProto* thunk_proto =
       proto.mutable_collective_permute_start_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
 
   for (const Buffer& buffer : buffers_) {

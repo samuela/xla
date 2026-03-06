@@ -52,7 +52,7 @@ class NvshmemSendThunk : public NvshmemCollectiveThunk {
       ThunkInfo thunk_info, const NvshmemSendThunkProto& proto,
       absl::Span<const BufferAllocation> buffer_allocations,
       std::shared_ptr<NvshmemBufferAddresses> absl_nonnull buffer_addresses,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
  protected:
   const CollectiveConfig& config() const override { return config_.config; }
@@ -64,7 +64,7 @@ class NvshmemSendThunk : public NvshmemCollectiveThunk {
       ThunkInfo thunk_info, const P2PConfig& config,
       const CollectiveThunk::Buffer& buffer, std::string hlo_name,
       std::shared_ptr<NvshmemBufferAddresses> absl_nonnull buffer_addresses,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+      bool is_async);
 
   const P2PConfig config_;
   const CollectiveThunk::Buffer buffer_;

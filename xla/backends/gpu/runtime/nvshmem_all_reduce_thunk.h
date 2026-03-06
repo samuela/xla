@@ -42,7 +42,7 @@ class NvshmemAllReduceReduceScatterThunkBase : public NvshmemCollectiveThunk {
  public:
   NvshmemAllReduceReduceScatterThunkBase(
       Kind kind, ThunkInfo thunk_info, AllReduceConfig config,
-      std::vector<CollectiveThunk::Buffer> buffers, bool is_sync);
+      std::vector<CollectiveThunk::Buffer> buffers, bool is_async);
 
   const CollectiveConfig& config() const override { return config_.config; }
   ReductionKind reduction_kind() const { return config_.reduction_kind; }
@@ -79,13 +79,12 @@ class NvshmemAllReduceStartThunk
   static absl::StatusOr<std::unique_ptr<NvshmemAllReduceStartThunk>> FromProto(
       ThunkInfo thunk_info, const NvshmemAllReduceStartThunkProto& thunk_proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
  private:
-  NvshmemAllReduceStartThunk(
-      ThunkInfo thunk_info, AllReduceConfig config,
-      std::vector<CollectiveThunk::Buffer> buffers,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events);
+  NvshmemAllReduceStartThunk(ThunkInfo thunk_info, AllReduceConfig config,
+                             std::vector<CollectiveThunk::Buffer> buffers,
+                             bool is_async);
 
  protected:
   absl::Status RunNvshmemCollective(const ExecuteParams& params,

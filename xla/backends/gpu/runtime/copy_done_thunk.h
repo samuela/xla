@@ -39,9 +39,9 @@ class CopyDoneThunk : public Thunk {
 
   static absl::StatusOr<std::unique_ptr<CopyDoneThunk>> FromProto(
       ThunkInfo thunk_info, const CopyDoneThunkProto& thunk_proto,
-      CopyThunk::AsyncEventsMap& async_events_map);
+      CopyThunk::AsyncExecutionMap& async_execution_map);
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
   bool IsAsyncDone() const override { return async_events_ != nullptr; }
 

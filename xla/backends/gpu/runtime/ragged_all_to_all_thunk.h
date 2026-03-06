@@ -124,10 +124,10 @@ class RaggedAllToAllStartThunk : public CollectiveThunk {
                            bool p2p_memcpy_enabled);
   RaggedAllToAllStartThunk(ThunkInfo thunk_info,
                            const RaggedAllToAllConfig& config,
-                           std::shared_ptr<AsyncEvents> async_events,
                            std::vector<CollectiveThunk::Buffer> buffers,
                            bool one_shot_kernel_enabled,
-                           bool use_multi_gpu_barrier_in_one_shot_kernel);
+                           bool use_multi_gpu_barrier_in_one_shot_kernel,
+                           bool is_async);
 
   // Returns whether the given instruction can be lowered to a nccl
   // ragged-all-to-all call.
@@ -162,7 +162,7 @@ class RaggedAllToAllStartThunk : public CollectiveThunk {
   static absl::StatusOr<std::unique_ptr<RaggedAllToAllStartThunk>> FromProto(
       ThunkInfo thunk_info, const RaggedAllToAllStartThunkProto& thunk_proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 

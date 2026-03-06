@@ -92,8 +92,8 @@ CollectiveOpGroupMode GetGroupModeInst(HloInstType* inst) {
 
 NvshmemAllReduceReduceScatterThunkBase::NvshmemAllReduceReduceScatterThunkBase(
     Thunk::Kind kind, ThunkInfo thunk_info, AllReduceConfig config,
-    std::vector<CollectiveThunk::Buffer> buffers, bool is_sync)
-    : NvshmemCollectiveThunk(kind, thunk_info, is_sync),
+    std::vector<CollectiveThunk::Buffer> buffers, bool is_async)
+    : NvshmemCollectiveThunk(kind, thunk_info, is_async),
       config_(std::move(config)),
       buffers_(std::move(buffers)) {
   CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
@@ -105,18 +105,14 @@ NvshmemAllReduceStartThunk::NvshmemAllReduceStartThunk(
     : NvshmemAllReduceReduceScatterThunkBase(
           Thunk::kNvshmemAllReduceStart, thunk_info,
           GetAllReduceConfigInst(inst), std::move(buffers),
-          IsGPUSyncCollective(*inst)) {}
+          !IsGPUSyncCollective(*inst)) {}
 
 NvshmemAllReduceStartThunk::NvshmemAllReduceStartThunk(
     ThunkInfo thunk_info, AllReduceConfig config,
-    std::vector<CollectiveThunk::Buffer> buffers,
-    std::shared_ptr<CollectiveThunk::AsyncEvents> async_events)
+    std::vector<CollectiveThunk::Buffer> buffers, bool is_async)
     : NvshmemAllReduceReduceScatterThunkBase(
           Thunk::kNvshmemAllReduceStart, std::move(thunk_info),
-          std::move(config), std::move(buffers),
-          /*is_sync=*/async_events == nullptr) {
-  set_async_events(std::move(async_events));
-}
+          std::move(config), std::move(buffers), is_async) {}
 
 absl::Status NvshmemAllReduceStartThunk::CheckImplementable(
     const HloAllReduceInstruction* inst, int64_t replica_count,
@@ -138,9 +134,9 @@ absl::StatusOr<ThunkProto> NvshmemAllReduceStartThunk::ToProto() const {
   NvshmemAllReduceStartThunkProto* thunk_proto =
       proto.mutable_nvshmem_all_reduce_start_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
 
   for (const CollectiveThunk::Buffer& buffer : buffers_) {
@@ -157,7 +153,7 @@ absl::StatusOr<std::unique_ptr<NvshmemAllReduceStartThunk>>
 NvshmemAllReduceStartThunk::FromProto(
     ThunkInfo thunk_info, const NvshmemAllReduceStartThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
   std::vector<CollectiveThunk::Buffer> buffers;
   buffers.reserve(thunk_proto.buffers_size());
   for (const CollectiveBufferProto& buffer_proto : thunk_proto.buffers()) {
@@ -166,27 +162,23 @@ NvshmemAllReduceStartThunk::FromProto(
         CollectiveThunk::Buffer::FromProto(buffer_proto, buffer_allocations));
   }
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
+  bool is_async = thunk_proto.has_async_events_unique_id();
 
   CollectiveConfig config =
       CollectiveConfig::FromProto(thunk_proto.collective_config());
   ASSIGN_OR_RETURN(ReductionKind reduction_kind,
                    FromReductionKindProto(thunk_proto.reduction_kind()));
 
-  return absl::WrapUnique<NvshmemAllReduceStartThunk>(
+  auto thunk = absl::WrapUnique<NvshmemAllReduceStartThunk>(
       new NvshmemAllReduceStartThunk(
           std::move(thunk_info),
           AllReduceConfig{std::move(config), reduction_kind},
-          std::move(buffers), async_events));
+          std::move(buffers), is_async));
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
 }
 
 absl::Status NvshmemAllReduceStartThunk::RunNvshmemCollective(

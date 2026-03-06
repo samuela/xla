@@ -462,7 +462,8 @@ absl::StatusOr<ThunkProto> HostExecuteStartThunk::ToProto() const {
     *result_proto->mutable_shape() = shape.ToProto();
   }
 
-  auto async_events_unique_id = GetAsyncEventsUniqueId();
+  std::optional<AsyncExecutionId> async_events_unique_id =
+      GetAsyncExecutionId();
   // By design, async_events_unique_id should always be present for
   // HostExecuteStartThunk.
   CHECK_NE(async_events_unique_id, std::nullopt);
@@ -477,7 +478,7 @@ absl::StatusOr<std::unique_ptr<HostExecuteStartThunk>>
 HostExecuteStartThunk::FromProto(
     ThunkInfo thunk_info, const HostExecuteStartThunkProto& proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    HostExecuteAsyncEventsMap& async_events_map) {
+    HostExecuteAsyncExecutionMap& async_events_map) {
   absl::InlinedVector<HostExecuteStartThunk::SliceAndShape, 4> args, results;
   auto shaped_slice_from_proto =
       [&](const auto& shaped_slice_protos,
@@ -501,7 +502,7 @@ HostExecuteStartThunk::FromProto(
   // that means that the pairing done thunk is already serialized and we reuse
   // the id to connect them. Otherwise, create a new entry.
   auto [async_event_it, _] = async_events_map.try_emplace(
-      AsyncEventsUniqueId(proto.async_events_unique_id()),
+      AsyncExecutionId(proto.async_events_unique_id()),
       std::make_shared<HostExecuteAsyncEvents>());
   return std::make_unique<HostExecuteStartThunk>(
       thunk_info, proto.executable_proto(), std::move(args), std::move(results),
@@ -619,12 +620,12 @@ absl::Status HostExecuteStartThunk::ExecuteOnStream(
   return absl::OkStatus();
 }
 
-std::optional<AsyncEventsUniqueId>
-HostExecuteStartThunk::GetAsyncEventsUniqueId() const {
+std::optional<AsyncExecutionId> HostExecuteStartThunk::GetAsyncExecutionId()
+    const {
   CHECK(async_events_)
       << "async_events_ must not be null in HostExecuteStartThunk";
   // We rely on the fact that the pointer to async_events_ is unique.
-  return absl::bit_cast<AsyncEventsUniqueId>(async_events_.get());
+  return absl::bit_cast<AsyncExecutionId>(async_events_.get());
 }
 
 // HostExecuteDoneThunk
@@ -645,7 +646,8 @@ absl::StatusOr<ThunkProto> HostExecuteDoneThunk::ToProto() const {
   HostExecuteDoneThunkProto* host_execute_done_thunk_proto =
       proto.mutable_host_execute_done_thunk();
 
-  auto async_events_unique_id = GetAsyncEventsUniqueId();
+  std::optional<AsyncExecutionId> async_events_unique_id =
+      GetAsyncExecutionId();
   // By design, async_events_unique_id should always be present for
   // HostExecuteDoneThunk.
   CHECK_NE(async_events_unique_id, std::nullopt);
@@ -660,12 +662,12 @@ absl::StatusOr<std::unique_ptr<HostExecuteDoneThunk>>
 HostExecuteDoneThunk::FromProto(
     ThunkInfo thunk_info, const HostExecuteDoneThunkProto& proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    HostExecuteAsyncEventsMap& async_events_map) {
+    HostExecuteAsyncExecutionMap& async_events_map) {
   // If async_events_map already contains an entry for the given unique id,
   // that means that the pairing start thunk is already serialized and we reuse
   // the id to connect them. Otherwise, create a new entry.
   auto [async_event_it, _] = async_events_map.try_emplace(
-      AsyncEventsUniqueId(proto.async_events_unique_id()),
+      AsyncExecutionId(proto.async_events_unique_id()),
       std::make_shared<HostExecuteAsyncEvents>());
   return std::make_unique<HostExecuteDoneThunk>(thunk_info,
                                                 async_event_it->second);
@@ -696,12 +698,12 @@ absl::Status HostExecuteDoneThunk::ExecuteOnStream(
   return absl::OkStatus();
 }
 
-std::optional<AsyncEventsUniqueId>
-HostExecuteDoneThunk::GetAsyncEventsUniqueId() const {
+std::optional<AsyncExecutionId> HostExecuteDoneThunk::GetAsyncExecutionId()
+    const {
   CHECK(async_events_)
       << "async_events_ must not be null in HostExecuteDoneThunk";
   // We rely on the fact that the pointer to async_events_ is unique.
-  return absl::bit_cast<AsyncEventsUniqueId>(async_events_.get());
+  return absl::bit_cast<AsyncExecutionId>(async_events_.get());
 }
 
 }  // namespace gpu

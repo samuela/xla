@@ -1543,7 +1543,7 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCollectivePermute(
           ShapedSlice{result_slice, result_buffer_shape},
           /*mem_size=*/ShapeUtil::ByteSizeOf(operand_shape)));
       // Signal that start thunk not created with nullptr.
-      GetCollectivesAsyncEvents().try_emplace(instr, nullptr);
+      GetCollectivesAsyncExecutions().try_emplace(instr, nullptr);
     } else {
       const CollectiveThunk::Buffer buffer = {
           /*element_count=*/ShapeUtil::ElementsIn(operand_shape),
@@ -1565,7 +1565,8 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCollectivePermute(
               instr, ir_emitter_context_->GetNextThunkId()),
           instr, replica_count, partition_count, buffers,
           ir_emitter_context_->debug_options().xla_gpu_use_memcpy_local_p2p());
-      GetCollectivesAsyncEvents().try_emplace(instr, thunk->async_events());
+      GetCollectivesAsyncExecutions().try_emplace(instr,
+                                                  thunk->async_execution());
       thunks.push_back(std::move(thunk));
     } else {
       auto thunk = std::make_unique<CollectivePermuteStartThunk>(
@@ -1573,7 +1574,8 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCollectivePermute(
               instr, ir_emitter_context_->GetNextThunkId()),
           instr, replica_count, partition_count, buffers,
           ir_emitter_context_->debug_options().xla_gpu_use_memcpy_local_p2p());
-      GetCollectivesAsyncEvents().try_emplace(instr, thunk->async_events());
+      GetCollectivesAsyncExecutions().try_emplace(instr,
+                                                  thunk->async_execution());
       thunks.push_back(std::move(thunk));
     }
   }
@@ -1697,7 +1699,8 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCollectiveThunk(
         thunk_info, inst, /*buffers=*/std::move(buffers),
         ir_emitter_context_->debug_options().xla_gpu_use_memcpy_local_p2p());
   }
-  GetCollectivesAsyncEvents().insert({async_start, thunk->async_events()});
+  GetCollectivesAsyncExecutions().insert(
+      {async_start, thunk->async_execution()});
   return GetThunkSequence(std::move(thunk));
 }
 
@@ -1770,7 +1773,7 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCollectiveGroupStartThunk(
           instr, ir_emitter_context_->GetNextThunkId()),
       Thunk::Kind::kGroupStart, std::move(thunks));
 
-  GetCollectivesAsyncEvents().insert({instr, thunk->async_events()});
+  GetCollectivesAsyncExecutions().insert({instr, thunk->async_execution()});
   return GetThunkSequence(std::move(thunk));
 }
 
@@ -1783,10 +1786,10 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitCollectiveAsyncDone(
       is_send_recv ? FindCanonicalSendRecvStartOp(inst) : inst->operand(0);
 
   // Find canonical async event.
-  CollectivesAsyncEvents& collectives_async_events =
-      GetCollectivesAsyncEvents();
-  auto async_events_it = collectives_async_events.find(start);
-  TF_RET_CHECK(async_events_it != collectives_async_events.end())
+  CollectivesAsyncExecutions& collectives_async_executions =
+      GetCollectivesAsyncExecutions();
+  auto async_events_it = collectives_async_executions.find(start);
+  TF_RET_CHECK(async_events_it != collectives_async_executions.end())
       << "couldn't find async events for start operation";
 
   // Can be null if no start thunk was created (e.g. if the start op
@@ -1810,10 +1813,10 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitNvshmemAsyncDone(
       is_send_recv ? FindCanonicalSendRecvStartOp(inst) : inst->operand(0);
 
   // Find canonical async event.
-  CollectivesAsyncEvents& collectives_async_events =
-      GetCollectivesAsyncEvents();
-  auto async_events_it = collectives_async_events.find(start);
-  TF_RET_CHECK(async_events_it != collectives_async_events.end())
+  CollectivesAsyncExecutions& collectives_async_executions =
+      GetCollectivesAsyncExecutions();
+  auto async_events_it = collectives_async_executions.find(start);
+  TF_RET_CHECK(async_events_it != collectives_async_executions.end())
       << "couldn't find async events for start operation";
 
   // Can be null if no start thunk was created (e.g. if the start op is
@@ -1900,7 +1903,8 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitNvshmemThunk(
     auto thunk = std::make_unique<NvshmemAllReduceThunkType>(
         thunk_info, inst, /*buffers=*/std::move(buffers),
         ir_emitter_context_->debug_options().xla_gpu_use_memcpy_local_p2p());
-    GetCollectivesAsyncEvents().insert({async_start, thunk->async_events()});
+    GetCollectivesAsyncExecutions().insert(
+        {async_start, thunk->async_execution()});
     return GetThunkSequence(std::move(thunk));
   }
 
@@ -1915,7 +1919,7 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitDegeneratedCollectiveThunk(
     std::vector<CollectiveThunk::Buffer>& buffers,
     const HloInstruction* async_start, const HloInstType* inst) {
   // Signal that start thunk not created with nullptr.
-  GetCollectivesAsyncEvents().insert({async_start, nullptr});
+  GetCollectivesAsyncExecutions().insert({async_start, nullptr});
 
   // Degenerate collectives are simply identity function. Buffer
   // assignment expects a copy, so that's what we do.
@@ -2128,32 +2132,32 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitSendThunk(
               instr, ir_emitter_context_->GetNextThunkId()),
           instr, replica_count, partition_count, buffer);
     }
-    CollectivesAsyncEvents& collectives_async_events =
-        GetCollectivesAsyncEvents();
+    CollectivesAsyncExecutions& collectives_async_executions =
+        GetCollectivesAsyncExecutions();
 
     // Wire up async events if the send thunk isn't emitted as a
     // part of a group thunk.
     if (!emit_group_thunks) {
       const HloInstruction* canonical_send_instr =
           FindCanonicalSendRecvStartOp(instr);
-      if (collectives_async_events.contains(canonical_send_instr)) {
+      if (collectives_async_executions.contains(canonical_send_instr)) {
+        // Pipelined send: share the existing AsyncExecution with this thunk.
         if (IsNvshmemCollective(instr)) {
           tsl::down_cast<NvshmemSendThunk*>(thunk.get())
-              ->set_async_events(
-                  collectives_async_events[canonical_send_instr]);
+              ->set_async_execution(
+                  collectives_async_executions[canonical_send_instr]);
         } else {
           tsl::down_cast<SendThunk*>(thunk.get())
-              ->set_async_events(
-                  collectives_async_events[canonical_send_instr]);
+              ->set_async_execution(
+                  collectives_async_executions[canonical_send_instr]);
         }
       } else {
         if (IsNvshmemCollective(instr)) {
-          collectives_async_events.try_emplace(
-              instr,
-              tsl::down_cast<NvshmemSendThunk*>(thunk.get())->async_events());
+          collectives_async_executions[canonical_send_instr] =
+              tsl::down_cast<NvshmemSendThunk*>(thunk.get())->async_execution();
         } else {
-          collectives_async_events.try_emplace(
-              instr, tsl::down_cast<SendThunk*>(thunk.get())->async_events());
+          collectives_async_executions[canonical_send_instr] =
+              tsl::down_cast<SendThunk*>(thunk.get())->async_execution();
         }
       }
     }
@@ -2228,31 +2232,31 @@ absl::StatusOr<ThunkSequence> ThunkEmitter::EmitRecvThunk(
               instr, ir_emitter_context_->GetNextThunkId()),
           instr, replica_count, partition_count, buffer);
     }
-    CollectivesAsyncEvents& collectives_async_events =
-        GetCollectivesAsyncEvents();
+    CollectivesAsyncExecutions& collectives_async_executions =
+        GetCollectivesAsyncExecutions();
 
     // Wire up async events.
     if (!emit_group_thunks) {
       const HloInstruction* canonical_recv_instr =
           FindCanonicalSendRecvStartOp(instr);
-      if (collectives_async_events.contains(canonical_recv_instr)) {
+      if (collectives_async_executions.contains(canonical_recv_instr)) {
+        // Pipelined recv: share the existing AsyncExecution with this thunk.
         if (IsNvshmemCollective(instr)) {
           tsl::down_cast<NvshmemRecvThunk*>(thunk.get())
-              ->set_async_events(
-                  collectives_async_events[canonical_recv_instr]);
+              ->set_async_execution(
+                  collectives_async_executions[canonical_recv_instr]);
         } else {
           tsl::down_cast<RecvThunk*>(thunk.get())
-              ->set_async_events(
-                  collectives_async_events[canonical_recv_instr]);
+              ->set_async_execution(
+                  collectives_async_executions[canonical_recv_instr]);
         }
       } else {
         if (IsNvshmemCollective(instr)) {
-          collectives_async_events.try_emplace(
-              instr,
-              tsl::down_cast<NvshmemRecvThunk*>(thunk.get())->async_events());
+          collectives_async_executions[canonical_recv_instr] =
+              tsl::down_cast<NvshmemRecvThunk*>(thunk.get())->async_execution();
         } else {
-          collectives_async_events.try_emplace(
-              instr, tsl::down_cast<RecvThunk*>(thunk.get())->async_events());
+          collectives_async_executions[canonical_recv_instr] =
+              tsl::down_cast<RecvThunk*>(thunk.get())->async_execution();
         }
       }
     }

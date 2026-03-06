@@ -1317,23 +1317,23 @@ absl::StatusOr<FusionEmissionResult> EmitCollective(
     }
     auto collective_start_thunk =
         std::make_unique<NcclThunkType>(thunk_info, instr, buffers);
-    std::shared_ptr<CollectiveThunk::AsyncEvents> async_events =
-        collective_start_thunk->async_events();
+    std::shared_ptr<AsyncExecution> async_execution =
+        collective_start_thunk->async_execution();
     seq.emplace_back(std::move(collective_start_thunk));
     // If the fusion is async, we do not emit the done thunk at the end.
     if (fusion_instr.parent()->IsAsyncComputation()) {
       auto async_start =
           fusion_instr.parent()->GetUniqueCaller(HloOpcode::kAsyncStart);
       CHECK(async_start) << "Async computations should have a unique caller.";
-      ir_emitter_context.collectives_async_events().insert(
-          {*async_start, async_events});
+      ir_emitter_context.collectives_async_executions().insert(
+          {*async_start, async_execution});
     } else {
       auto collective_done_thunk = std::make_unique<CollectiveDoneThunk>(
           /*kind=*/collective_done_thunk_kind,
           /*thunk_info=*/
           Thunk::ThunkInfo::WithProfileAnnotation(
               instr, ir_emitter_context.GetNextThunkId()),
-          /*async_events=*/async_events);
+          /*async_execution=*/async_execution);
       seq.emplace_back(std::move(collective_done_thunk));
     }
   } else {

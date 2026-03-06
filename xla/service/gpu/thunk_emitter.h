@@ -223,8 +223,8 @@ class ThunkEmitter {
   absl::StatusOr<ShapedSlice> GetShapedSliceForHlo(
       const HloInstruction* instr, const ShapeIndex& index = {}) const;
 
-  CollectivesAsyncEvents& GetCollectivesAsyncEvents() {
-    return ir_emitter_context_->collectives_async_events();
+  CollectivesAsyncExecutions& GetCollectivesAsyncExecutions() {
+    return ir_emitter_context_->collectives_async_executions();
   }
 
   InstructionToHostExecuteAsyncEvents&

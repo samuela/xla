@@ -22,6 +22,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/base/casts.h"
+#include "xla/backends/gpu/runtime/async_execution.h"
 #include "xla/backends/gpu/runtime/collective_thunk.h"
 #include "xla/backends/gpu/runtime/nvshmem_collective_thunk.h"
 #include "xla/backends/gpu/runtime/nvshmem_collective_thunk.pb.h"
@@ -83,17 +84,17 @@ TEST(NvshmemRecvThunkTest, ProtoRoundTrip) {
       BufferAllocation(/*index=*/0, /*size=*/80, /*color=*/0)};
   std::shared_ptr<NvshmemBufferAddresses> nvshmem_buffer_addresses =
       std::make_shared<NvshmemBufferAddresses>();
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
 
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<NvshmemRecvThunk> thunk,
       NvshmemRecvThunk::FromProto(
           thunk_info, reference_proto.nvshmem_recv_thunk(), buffer_allocations,
-          nvshmem_buffer_addresses, async_events_map));
+          nvshmem_buffer_addresses, async_execution_map));
 
-  auto event = async_events_map.find(AsyncEventsUniqueId{
+  auto event = async_execution_map.find(AsyncExecutionId{
       reference_proto.nvshmem_recv_thunk().async_events_unique_id()});
-  EXPECT_NE(event, async_events_map.end());
+  EXPECT_NE(event, async_execution_map.end());
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 

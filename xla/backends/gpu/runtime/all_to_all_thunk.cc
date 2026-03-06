@@ -79,10 +79,10 @@ struct BufferRendezvousValue {
 }  // namespace
 
 AllToAllStartThunk::AllToAllStartThunk(
-    ThunkInfo thunk_info, std::shared_ptr<AsyncEvents> async_events,
-    const AllToAllConfig& config, std::vector<CollectiveThunk::Buffer> buffers,
-    bool p2p_memcpy_enabled)
-    : CollectiveThunk(Thunk::kAllToAllStart, thunk_info, async_events,
+    ThunkInfo thunk_info, const AllToAllConfig& config,
+    std::vector<CollectiveThunk::Buffer> buffers, bool p2p_memcpy_enabled,
+    bool is_async)
+    : CollectiveThunk(Thunk::kAllToAllStart, thunk_info, is_async,
                       p2p_memcpy_enabled),
       config_(config),
       buffers_(std::move(buffers)),
@@ -93,12 +93,13 @@ AllToAllStartThunk::AllToAllStartThunk(
 AllToAllStartThunk::AllToAllStartThunk(
     ThunkInfo thunk_info, const HloAllToAllInstruction* instr,
     std::vector<CollectiveThunk::Buffer> buffers, bool p2p_memcpy_enabled)
-    : AllToAllStartThunk(std::move(thunk_info),
-                         IsGPUSyncCollective(*instr)
-                             ? nullptr
-                             : std::make_shared<CollectiveThunk::AsyncEvents>(),
-                         GetAllToAllConfig(instr), std::move(buffers),
-                         p2p_memcpy_enabled) {}
+    : CollectiveThunk(Thunk::kAllToAllStart, thunk_info,
+                      !IsGPUSyncCollective(*instr), p2p_memcpy_enabled),
+      config_(GetAllToAllConfig(instr)),
+      buffers_(std::move(buffers)),
+      p2p_memcpy_enabled_(p2p_memcpy_enabled) {
+  CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
+}
 
 /*static*/ absl::Status AllToAllStartThunk::CheckImplementable(
     const HloAllToAllInstruction* instr, int64_t replica_count,
@@ -278,7 +279,7 @@ absl::StatusOr<std::unique_ptr<AllToAllStartThunk>>
 AllToAllStartThunk::FromProto(
     ThunkInfo thunk_info, const AllToAllStartThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
   std::vector<CollectiveThunk::Buffer> buffers;
   buffers.reserve(thunk_proto.buffers_size());
   for (const CollectiveBufferProto& proto : thunk_proto.buffers()) {
@@ -288,24 +289,20 @@ AllToAllStartThunk::FromProto(
     buffers.push_back(buffer);
   }
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
+  bool is_async = thunk_proto.has_async_events_unique_id();
 
   CollectiveConfig config =
       CollectiveConfig::FromProto(thunk_proto.collective_config());
 
-  return std::make_unique<AllToAllStartThunk>(
-      std::move(thunk_info), async_events,
+  auto thunk = std::make_unique<AllToAllStartThunk>(
+      std::move(thunk_info),
       AllToAllConfig{config, thunk_proto.has_split_dimension()}, buffers,
-      thunk_proto.p2p_memcpy_enabled());
+      thunk_proto.p2p_memcpy_enabled(), is_async);
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
 }
 
 absl::StatusOr<ThunkProto> AllToAllStartThunk::ToProto() const {
@@ -314,9 +311,9 @@ absl::StatusOr<ThunkProto> AllToAllStartThunk::ToProto() const {
 
   AllToAllStartThunkProto* thunk_proto = proto.mutable_all_to_all_start_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
 
   for (const Buffer& buffer : buffers_) {

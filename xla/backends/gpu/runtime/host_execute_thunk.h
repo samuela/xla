@@ -71,8 +71,8 @@ class HostExecuteAsyncEvents {
       events_ ABSL_GUARDED_BY(events_mu_);
 };
 
-using HostExecuteAsyncEventsMap =
-    absl::flat_hash_map<AsyncEventsUniqueId,
+using HostExecuteAsyncExecutionMap =
+    absl::flat_hash_map<AsyncExecutionId,
                         std::shared_ptr<HostExecuteAsyncEvents>>;
 
 class HostExecuteStartThunk : public Thunk {
@@ -107,7 +107,7 @@ class HostExecuteStartThunk : public Thunk {
   static absl::StatusOr<std::unique_ptr<HostExecuteStartThunk>> FromProto(
       ThunkInfo thunk_info, const HostExecuteStartThunkProto& proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      HostExecuteAsyncEventsMap& async_events_map);
+      HostExecuteAsyncExecutionMap& async_events_map);
 
   absl::Status Initialize(const InitializeParams& params) override;
   absl::Status ExecuteOnStream(const ExecuteParams& params) override;
@@ -128,7 +128,7 @@ class HostExecuteStartThunk : public Thunk {
     return &executable_proto_;
   }
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
   HostExecuteStartThunk(
       Thunk::ThunkInfo thunk_info,
@@ -162,12 +162,12 @@ class HostExecuteDoneThunk : public Thunk {
   static absl::StatusOr<std::unique_ptr<HostExecuteDoneThunk>> FromProto(
       ThunkInfo thunk_info, const HostExecuteDoneThunkProto& proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      HostExecuteAsyncEventsMap& async_events_map);
+      HostExecuteAsyncExecutionMap& async_events_map);
 
   absl::Status Initialize(const InitializeParams& params) override;
   absl::Status ExecuteOnStream(const ExecuteParams& params) override;
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
  private:
   std::shared_ptr<HostExecuteAsyncEvents> async_events_;

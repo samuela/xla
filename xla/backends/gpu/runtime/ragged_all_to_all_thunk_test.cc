@@ -127,17 +127,13 @@ TEST_F(GpuRaggedAllToAllTest, TestConvertToCommands) {
   }
 
   // ThunkSequence Creation
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events =
-      std::make_shared<CollectiveThunk::AsyncEvents>();
-
   auto ra2a_start_thunk = std::make_unique<RaggedAllToAllStartThunk>(
       Thunk::ThunkInfo{}, ra2a_instr, std::move(buffers),
       /*p2p_memcpy_enabled=*/false);
 
-  ra2a_start_thunk->set_async_events(async_events);
-
   auto ra2a_done_thunk = std::make_unique<CollectiveDoneThunk>(
-      Kind::kRaggedAllToAllDone, Thunk::ThunkInfo{}, async_events);
+      Kind::kRaggedAllToAllDone, Thunk::ThunkInfo{},
+      ra2a_start_thunk->async_execution());
 
   ThunkSequence thunk_sequence;
   thunk_sequence.push_back(std::move(ra2a_start_thunk));
@@ -247,15 +243,15 @@ TEST(CollectiveThunkTest, ProtoRoundTrip) {
       static_cast<xla::gpu::ExecutionStreamId::ValueType>(
           proto.thunk_info().execution_stream_id())};
 
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
   std::vector<BufferAllocation> buffer_allocations = {
       BufferAllocation(/*index=*/0, /*size=*/4, /*color=*/0)};
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<RaggedAllToAllStartThunk> thunk,
                        RaggedAllToAllStartThunk::FromProto(
                            thunk_info, proto.ragged_all_to_all_start_thunk(),
-                           buffer_allocations, async_events_map));
-  ASSERT_NE(thunk->async_events(), nullptr);
+                           buffer_allocations, async_execution_map));
+  ASSERT_NE(thunk->async_execution(), nullptr);
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 

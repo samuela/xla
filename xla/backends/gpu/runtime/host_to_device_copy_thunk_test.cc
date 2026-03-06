@@ -137,7 +137,7 @@ TEST(HostToDeviceCopyThunkTest, FromProto) {
       BufferAllocation(/*index=*/0, /*size=*/1024, /*color=*/0),
       BufferAllocation(/*index=*/1, /*size=*/1024, /*color=*/0)};
   Shape shape = ShapeUtil::MakeShape(S32, {64});
-  CopyThunk::AsyncEventsMap async_events_map;
+  CopyThunk::AsyncExecutionMap async_events_map;
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HostToDeviceCopyThunk> thunk,
                           HostToDeviceCopyThunk::FromProto(

@@ -123,17 +123,12 @@ ENTRY computation {
                                     /*destination_memory_space=*/0};
 
   // ThunkSequence Creation
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events =
-      std::make_shared<CollectiveThunk::AsyncEvents>();
-
   auto send_thunk = std::make_unique<SendThunk>(Thunk::ThunkInfo{}, send_instr,
                                                 /*replica_count=*/2,
                                                 /*partition_count=*/1, buffer);
 
-  send_thunk->set_async_events(async_events);
-
   auto send_done_thunk = std::make_unique<CollectiveDoneThunk>(
-      Kind::kSendDone, Thunk::ThunkInfo{}, async_events);
+      Kind::kSendDone, Thunk::ThunkInfo{}, send_thunk->async_execution());
 
   ThunkSequence thunk_sequence;
   thunk_sequence.push_back(std::move(send_thunk));
@@ -215,17 +210,12 @@ ENTRY computation {
                                     /*destination_memory_space=*/0};
 
   // ThunkSequence Creation
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events =
-      std::make_shared<CollectiveThunk::AsyncEvents>();
-
   auto recv_thunk = std::make_unique<RecvThunk>(Thunk::ThunkInfo{}, recv_instr,
                                                 /*replica_count=*/2,
                                                 /*partition_count=*/1, buffer);
 
-  recv_thunk->set_async_events(async_events);
-
   auto recv_done_thunk = std::make_unique<CollectiveDoneThunk>(
-      Kind::kRecvDone, Thunk::ThunkInfo{}, async_events);
+      Kind::kRecvDone, Thunk::ThunkInfo{}, recv_thunk->async_execution());
 
   ThunkSequence thunk_sequence;
   thunk_sequence.push_back(std::move(recv_thunk));

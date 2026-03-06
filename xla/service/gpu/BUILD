@@ -428,6 +428,7 @@ cc_library(
         ":gpu_executable",
         ":ir_emission_utils",
         ":kernel_reuse_cache",
+        "//xla/backends/gpu/runtime:async_execution",
         "//xla/backends/gpu/runtime:collective_thunk",
         "//xla/backends/gpu/runtime:host_execute_thunk",
         "//xla/backends/gpu/runtime:thunk_id",

@@ -333,7 +333,7 @@ bool AllThunksInSequentialThunkAreConvertible(
 // are captured by the same command buffer.
 size_t CheckAsyncRegion(absl::Span<std::unique_ptr<Thunk>> thunks,
                         const CommandBufferConfig& config) {
-  absl::flat_hash_set<AsyncEventsUniqueId> unpaired_ids_of_async_starts;
+  absl::flat_hash_set<AsyncExecutionId> unpaired_ids_of_async_starts;
 
   for (size_t i = 0; i < thunks.size(); ++i) {
     auto& thunk = thunks[i];
@@ -344,15 +344,14 @@ size_t CheckAsyncRegion(absl::Span<std::unique_ptr<Thunk>> thunks,
     }
 
     // Check if it is async start thunk
-    if (thunk->IsAsyncStart() && thunk->GetAsyncEventsUniqueId().has_value()) {
-      unpaired_ids_of_async_starts.insert(
-          thunk->GetAsyncEventsUniqueId().value());
+    if (thunk->IsAsyncStart() && thunk->GetAsyncExecutionId().has_value()) {
+      unpaired_ids_of_async_starts.insert(thunk->GetAsyncExecutionId().value());
     }
 
     // Check if it is async done thunk
-    if (thunk->IsAsyncDone() && thunk->GetAsyncEventsUniqueId().has_value()) {
+    if (thunk->IsAsyncDone() && thunk->GetAsyncExecutionId().has_value()) {
       auto it = unpaired_ids_of_async_starts.find(
-          thunk->GetAsyncEventsUniqueId().value());
+          thunk->GetAsyncExecutionId().value());
       if (it == unpaired_ids_of_async_starts.end()) {
         return 0;  // We found an async end for an event, whose async
                    // start is not part of the region

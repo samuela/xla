@@ -90,10 +90,10 @@ namespace gpu {
 //
 TSL_LIB_GTL_DEFINE_INT_TYPE(ExecutionStreamId, uint64_t);
 
-// Unique identifier for async events. The same identifier is expected to be
-// shared between a pair of StartThunk and corresponding DoneThunk. It is used
-// to collect async regions for a CommandBufferThunk.
-TSL_LIB_GTL_DEFINE_INT_TYPE(AsyncEventsUniqueId, uint64_t);
+// Unique identifier for async execution regions. The same identifier is
+// expected to be shared between a pair of StartThunk and corresponding
+// DoneThunk. It is used to collect async regions for a CommandBufferThunk.
+TSL_LIB_GTL_DEFINE_INT_TYPE(AsyncExecutionId, uint64_t);
 
 // Thunk acts as the bridge between IrEmitter and GpuExecutable. It stores the
 // metadata IrEmitter generates for GpuExecutable to invoke an HloInstruction.
@@ -536,7 +536,7 @@ class Thunk {
     return control_predecessors_;
   }
 
-  virtual std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const {
+  virtual std::optional<AsyncExecutionId> GetAsyncExecutionId() const {
     return std::nullopt;
   }
 

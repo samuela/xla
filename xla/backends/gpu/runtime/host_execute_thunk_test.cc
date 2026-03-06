@@ -622,7 +622,7 @@ TEST(HostExecuteStartThunkTest, ProtoRoundTrip) {
 
   TF_ASSERT_OK_AND_ASSIGN(Thunk::ThunkInfo thunk_info,
                           Thunk::ThunkInfo::FromProto(proto.thunk_info()));
-  HostExecuteAsyncEventsMap async_events_map;
+  HostExecuteAsyncExecutionMap async_events_map;
 
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<HostExecuteStartThunk> round_trip_thunk,
@@ -634,7 +634,7 @@ TEST(HostExecuteStartThunkTest, ProtoRoundTrip) {
                           round_trip_thunk->ToProto());
   EXPECT_EQ(async_events_map.size(), 1);
   EXPECT_EQ(async_events_map.begin()->first,
-            thunk->GetAsyncEventsUniqueId().value());
+            thunk->GetAsyncExecutionId().value());
 
   // ids are expected to be different, so drop them for the comparison.
   round_trip_proto.mutable_host_execute_start_thunk()
@@ -688,7 +688,7 @@ TEST(HostExecuteThunkTest, ProtoRoundTripPairing) {
   TF_ASSERT_OK_AND_ASSIGN(Thunk::ThunkInfo done_thunk_info,
                           Thunk::ThunkInfo::FromProto(done_proto.thunk_info()));
 
-  HostExecuteAsyncEventsMap async_events_map;
+  HostExecuteAsyncExecutionMap async_events_map;
 
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<HostExecuteDoneThunk> done_thunk,
@@ -703,8 +703,8 @@ TEST(HostExecuteThunkTest, ProtoRoundTripPairing) {
                                        buffer_allocations, async_events_map));
 
   EXPECT_EQ(async_events_map.size(), 1);
-  EXPECT_EQ(start_thunk->GetAsyncEventsUniqueId(),
-            done_thunk->GetAsyncEventsUniqueId());
+  EXPECT_EQ(start_thunk->GetAsyncExecutionId(),
+            done_thunk->GetAsyncExecutionId());
 }
 
 }  // namespace

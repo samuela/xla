@@ -22,6 +22,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/base/casts.h"
+#include "xla/backends/gpu/runtime/async_execution.h"
 #include "xla/backends/gpu/runtime/collective_thunk.h"
 #include "xla/backends/gpu/runtime/nvshmem_all_reduce_thunk.h"
 #include "xla/backends/gpu/runtime/nvshmem_collective_permute_thunk.h"
@@ -55,22 +56,23 @@ TEST(CollectiveThunkTest, NvshmemCollectiveDoneThunkProtoRoundTrip) {
       Thunk::ThunkInfo thunk_info,
       Thunk::ThunkInfo::FromProto(reference_proto.thunk_info()));
 
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  // Pre-populate the map with a dummy AsyncExecution for the done thunk to
+  // find. In real deserialization, the start thunk would have already been
+  // deserialized and registered its AsyncExecution.
+  auto async_execution = std::make_shared<AsyncExecution>(nullptr);
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
+  async_execution_map[AsyncExecutionId{3}] = async_execution;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<NvshmemCollectiveDoneThunk> thunk,
       NvshmemCollectiveDoneThunk::FromProto(
           thunk_info, reference_proto.nvshmem_collective_done_thunk(),
-          async_events_map));
-  auto event = async_events_map.find(
-      AsyncEventsUniqueId{reference_proto.nvshmem_collective_done_thunk()
-                              .async_events_unique_id()});
-  EXPECT_NE(event, async_events_map.end());
+          async_execution_map));
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 
   reference_proto.mutable_nvshmem_collective_done_thunk()
       ->set_async_events_unique_id(
-          absl::bit_cast<uint64_t>(event->second.get()));
+          absl::bit_cast<uint64_t>(async_execution.get()));
   EXPECT_THAT(round_trip_proto, EqualsProto(reference_proto));
 }
 
@@ -89,22 +91,23 @@ TEST(CollectiveThunkTest, NvshmemCollectivePermuteDoneThunkProtoRoundTrip) {
       Thunk::ThunkInfo thunk_info,
       Thunk::ThunkInfo::FromProto(reference_proto.thunk_info()));
 
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  // Pre-populate the map with a dummy AsyncExecution for the done thunk to
+  // find. In real deserialization, the start thunk would have already been
+  // deserialized and registered its AsyncExecution.
+  auto async_execution = std::make_shared<AsyncExecution>(nullptr);
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
+  async_execution_map[AsyncExecutionId{3}] = async_execution;
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<NvshmemCollectivePermuteDoneThunk> thunk,
       NvshmemCollectivePermuteDoneThunk::FromProto(
           thunk_info, reference_proto.nvshmem_collective_permute_done_thunk(),
-          async_events_map));
-  auto event = async_events_map.find(AsyncEventsUniqueId{
-      reference_proto.nvshmem_collective_permute_done_thunk()
-          .async_events_unique_id()});
-  EXPECT_NE(event, async_events_map.end());
+          async_execution_map));
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 
   reference_proto.mutable_nvshmem_collective_permute_done_thunk()
       ->set_async_events_unique_id(
-          absl::bit_cast<uint64_t>(event->second.get()));
+          absl::bit_cast<uint64_t>(async_execution.get()));
   EXPECT_THAT(round_trip_proto, EqualsProto(reference_proto));
 }
 
@@ -141,7 +144,7 @@ TEST(CollectiveThunkTest, NvshmemAllReduceStartThunkProtoRoundTrip) {
       Thunk::ThunkInfo thunk_info,
       Thunk::ThunkInfo::FromProto(reference_proto.thunk_info()));
 
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
   std::vector<BufferAllocation> buffer_allocations = {
       BufferAllocation(/*index=*/0, /*size=*/100, /*color=*/0),
       BufferAllocation(/*index=*/1, /*size=*/100, /*color=*/0)};
@@ -149,11 +152,11 @@ TEST(CollectiveThunkTest, NvshmemAllReduceStartThunkProtoRoundTrip) {
       std::unique_ptr<NvshmemAllReduceStartThunk> thunk,
       NvshmemAllReduceStartThunk::FromProto(
           thunk_info, reference_proto.nvshmem_all_reduce_start_thunk(),
-          buffer_allocations, async_events_map));
-  auto event = async_events_map.find(
-      AsyncEventsUniqueId{reference_proto.nvshmem_all_reduce_start_thunk()
-                              .async_events_unique_id()});
-  EXPECT_NE(event, async_events_map.end());
+          buffer_allocations, async_execution_map));
+  auto event = async_execution_map.find(
+      AsyncExecutionId{reference_proto.nvshmem_all_reduce_start_thunk()
+                           .async_events_unique_id()});
+  EXPECT_NE(event, async_execution_map.end());
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 
@@ -206,7 +209,7 @@ TEST(CollectiveThunkTest, NvshmemCollectivePermuteStartThunkProtoRoundTrip) {
       Thunk::ThunkInfo thunk_info,
       Thunk::ThunkInfo::FromProto(reference_proto.thunk_info()));
 
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
   std::vector<BufferAllocation> buffer_allocations = {
       BufferAllocation(/*index=*/0, /*size=*/100, /*color=*/0),
       BufferAllocation(/*index=*/1, /*size=*/100, /*color=*/0)};
@@ -214,11 +217,11 @@ TEST(CollectiveThunkTest, NvshmemCollectivePermuteStartThunkProtoRoundTrip) {
       std::unique_ptr<NvshmemCollectivePermuteStartThunk> thunk,
       NvshmemCollectivePermuteStartThunk::FromProto(
           thunk_info, reference_proto.nvshmem_collective_permute_start_thunk(),
-          buffer_allocations, async_events_map));
-  auto event = async_events_map.find(AsyncEventsUniqueId{
-      reference_proto.nvshmem_collective_permute_start_thunk()
-          .async_events_unique_id()});
-  EXPECT_NE(event, async_events_map.end());
+          buffer_allocations, async_execution_map));
+  auto event = async_execution_map.find(
+      AsyncExecutionId{reference_proto.nvshmem_collective_permute_start_thunk()
+                           .async_events_unique_id()});
+  EXPECT_NE(event, async_execution_map.end());
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 
@@ -272,17 +275,17 @@ TEST(CollectiveThunkTest, NvshmemSendThunkProtoRoundTrip) {
       BufferAllocation(/*index=*/1, /*size=*/100, /*color=*/0)};
   std::shared_ptr<NvshmemBufferAddresses> nvshmem_buffer_addresses =
       std::make_shared<NvshmemBufferAddresses>();
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
 
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<NvshmemSendThunk> thunk,
       NvshmemSendThunk::FromProto(
           thunk_info, reference_proto.nvshmem_send_thunk(), buffer_allocations,
-          nvshmem_buffer_addresses, async_events_map));
+          nvshmem_buffer_addresses, async_execution_map));
 
-  auto event = async_events_map.find(AsyncEventsUniqueId{
+  auto event = async_execution_map.find(AsyncExecutionId{
       reference_proto.nvshmem_send_thunk().async_events_unique_id()});
-  EXPECT_NE(event, async_events_map.end());
+  EXPECT_NE(event, async_execution_map.end());
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 

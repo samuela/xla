@@ -44,10 +44,8 @@ class AllGatherStartThunk : public CollectiveThunk {
   AllGatherStartThunk(ThunkInfo thunk_info, const HloAllGatherInstruction* inst,
                       std::vector<Buffer> buffers,
                       bool p2p_memcpy_enabled = false);
-  AllGatherStartThunk(
-      ThunkInfo thunk_info,
-      std::shared_ptr<CollectiveThunk::AsyncEvents> async_events,
-      CollectiveConfig config, std::vector<Buffer> buffers);
+  AllGatherStartThunk(ThunkInfo thunk_info, CollectiveConfig config,
+                      std::vector<Buffer> buffers, bool is_async);
 
   static const char* GetHloOpName() { return "all-gather-start"; }
 
@@ -64,7 +62,7 @@ class AllGatherStartThunk : public CollectiveThunk {
   static absl::StatusOr<std::unique_ptr<AllGatherStartThunk>> FromProto(
       ThunkInfo thunk_info, const AllGatherStartThunkProto& thunk_proto,
       absl::Span<const BufferAllocation> buffer_allocations,
-      CollectiveThunk::AsyncEventsMap& async_events_map);
+      CollectiveThunk::AsyncExecutionMap& async_execution_map);
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 

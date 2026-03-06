@@ -71,8 +71,7 @@ namespace {
 struct ConversionContext {
   // A mapping from collective thunk async events to the corresponding
   // collective command.
-  absl::flat_hash_map<CollectiveThunk::AsyncEvents*, const AsyncStartCommand*>
-      async_start;
+  absl::flat_hash_map<AsyncExecution*, const AsyncStartCommand*> async_start;
 };
 }  // namespace
 
@@ -189,58 +188,60 @@ static absl::StatusOr<std::unique_ptr<Command>> Convert(
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const AllReduceStartThunk& thunk) {
   return std::make_unique<AllReduceCmd>(thunk.config(), thunk.reduction_kind(),
-                                        thunk.buffers(), thunk.async_events());
+                                        thunk.buffers(),
+                                        thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const ReduceScatterStartThunk& thunk) {
   return std::make_unique<ReduceScatterCmd>(
       thunk.config(), thunk.reduction_kind(), thunk.buffers(),
-      thunk.async_events());
+      thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const AllToAllStartThunk& thunk) {
-  return std::make_unique<AllToAllCmd>(thunk.config(),
-                                       thunk.has_split_dimension(),
-                                       thunk.buffers(), thunk.async_events());
+  return std::make_unique<AllToAllCmd>(
+      thunk.config(), thunk.has_split_dimension(), thunk.buffers(),
+      thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const AllGatherStartThunk& thunk) {
   return std::make_unique<AllGatherCmd>(thunk.config(), thunk.buffers(),
-                                        thunk.async_events());
+                                        thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const CollectiveBroadcastStartThunk& thunk) {
   return std::make_unique<CollectiveBroadcastCmd>(
-      thunk.config(), thunk.buffers(), thunk.async_events());
+      thunk.config(), thunk.buffers(), thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const CollectivePermuteStartThunk& thunk) {
   return std::make_unique<CollectivePermuteCmd>(
       thunk.config(), thunk.p2p_config(), thunk.buffers(),
-      thunk.async_events());
+      thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const RaggedAllToAllStartThunk& thunk) {
-  return std::make_unique<RaggedAllToAllCmd>(
-      thunk.ragged_all_to_all_config(), thunk.buffers(), thunk.async_events());
+  return std::make_unique<RaggedAllToAllCmd>(thunk.ragged_all_to_all_config(),
+                                             thunk.buffers(),
+                                             thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const RecvThunk& thunk) {
   return std::make_unique<RecvCmd>(thunk.config(), thunk.p2p_config(),
-                                   thunk.buffer(), thunk.async_events());
+                                   thunk.buffer(), thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
     const SendThunk& thunk) {
   return std::make_unique<SendCmd>(thunk.config(), thunk.p2p_config(),
-                                   thunk.buffer(), thunk.async_events());
+                                   thunk.buffer(), thunk.async_execution());
 }
 
 static absl::StatusOr<std::unique_ptr<Command>> Convert(
@@ -323,7 +324,7 @@ static absl::Status AppendCommands(ConversionContext& ctx,
 
     // Keep track of async start commands for converting to CollectiveDoneCmd.
     if (auto* collective = dynamic_cast<CollectiveCmd*>(command->get())) {
-      ctx.async_start[collective->async_events().get()] = collective;
+      ctx.async_start[collective->async_execution().get()] = collective;
     }
 
     cmd_sequence.push_back(std::move(*command));
@@ -400,13 +401,13 @@ static absl::Status AppendCommands(ConversionContext& ctx,
     case Thunk::Kind::kReduceScatterDone:
       if (options.synchronization_mode ==
           CommandExecutor::SynchronizationMode::kLHS) {
-        auto async_events =
-            static_cast<const CollectiveDoneThunk&>(thunk).async_events();
-        TF_RET_CHECK(ctx.async_start.contains(async_events.get()))
+        auto async_execution =
+            static_cast<const CollectiveDoneThunk&>(thunk).async_execution();
+        TF_RET_CHECK(ctx.async_start.contains(async_execution.get()))
             << "Couldn't find a start command corresponding to a done thunk";
         return append(absl::StatusOr<std::unique_ptr<Command>>(
             std::make_unique<CollectiveDoneCmd>(
-                ctx.async_start.at(async_events.get()), async_events)));
+                ctx.async_start.at(async_execution.get()), async_execution)));
       } else {
         if (thunk.control_predecessors().empty()) {
           return absl::OkStatus();

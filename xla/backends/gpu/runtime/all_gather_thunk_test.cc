@@ -21,6 +21,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/log/check.h"
+#include "xla/backends/gpu/runtime/async_execution.h"
 #include "xla/backends/gpu/runtime/collective_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/thunk.pb.h"
@@ -53,15 +54,15 @@ TEST(CollectiveThunkTest, ProtoRoundTrip) {
       static_cast<xla::gpu::ExecutionStreamId::ValueType>(
           proto.thunk_info().execution_stream_id())};
 
-  CollectiveThunk::AsyncEventsMap async_events_map;
+  CollectiveThunk::AsyncExecutionMap async_execution_map;
   std::vector<BufferAllocation> buffer_allocations = {
       BufferAllocation(/*index=*/0, /*size=*/4, /*color=*/0)};
 
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<AllGatherStartThunk> thunk,
       AllGatherStartThunk::FromProto(thunk_info, proto.all_gather_start_thunk(),
-                                     buffer_allocations, async_events_map));
-  ASSERT_NE(thunk->async_events(), nullptr);
+                                     buffer_allocations, async_execution_map));
+  ASSERT_NE(thunk->async_execution(), nullptr);
 
   ASSERT_OK_AND_ASSIGN(ThunkProto round_trip_proto, thunk->ToProto());
 

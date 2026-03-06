@@ -88,7 +88,7 @@ absl::StatusOr<ThunkProto> DeviceToHostCopyThunk::ToProto() const {
                       destination().ToProto());
   copy_thunk_proto->set_mem_size(size_bytes());
 
-  if (auto id = GetAsyncEventsUniqueId()) {
+  if (auto id = GetAsyncExecutionId()) {
     d2h_copy_thunk_proto->set_async_events_unique_id(id->value());
   }
   d2h_copy_thunk_proto->set_instr_id(instr_id_);
@@ -99,7 +99,7 @@ absl::StatusOr<std::unique_ptr<DeviceToHostCopyThunk>>
 DeviceToHostCopyThunk::FromProto(
     ThunkInfo thunk_info, const DeviceToHostCopyThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CopyThunk::AsyncEventsMap& async_events_map) {
+    CopyThunk::AsyncExecutionMap& async_events_map) {
   TF_ASSIGN_OR_RETURN(
       ShapedSlice src_slice,
       ShapedSlice::FromProto(thunk_proto.copy_thunk().source_buffer(),
@@ -112,7 +112,7 @@ DeviceToHostCopyThunk::FromProto(
   std::shared_ptr<CopyThunk::AsyncEvents> async_events;
   if (thunk_proto.has_async_events_unique_id()) {
     auto [async_event_it, _] = async_events_map.try_emplace(
-        AsyncEventsUniqueId(thunk_proto.async_events_unique_id()),
+        AsyncExecutionId(thunk_proto.async_events_unique_id()),
         std::make_shared<CopyThunk::AsyncEvents>());
     async_events = async_event_it->second;
   }
@@ -123,13 +123,13 @@ DeviceToHostCopyThunk::FromProto(
       thunk_proto.instr_id());
 }
 
-std::optional<AsyncEventsUniqueId>
-DeviceToHostCopyThunk::GetAsyncEventsUniqueId() const {
+std::optional<AsyncExecutionId> DeviceToHostCopyThunk::GetAsyncExecutionId()
+    const {
   if (!async_events_) {
     return std::nullopt;
   }
   // We rely on the fact that the pointer to async_events_ is unique.
-  return absl::bit_cast<AsyncEventsUniqueId>(async_events_.get());
+  return absl::bit_cast<AsyncExecutionId>(async_events_.get());
 }
 
 }  // namespace gpu

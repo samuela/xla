@@ -83,8 +83,8 @@ class HostSendRecvAsyncEvents {
 // A map from a unique id to a shared pointer to HostSendRecvAsyncEvents.
 // This is used to match the pairs of HostSend/Recv and HostSend/RecvDone thunks
 // during deserialization.
-using HostSendRecvAsyncEventsMap =
-    absl::flat_hash_map<AsyncEventsUniqueId,
+using HostSendRecvAsyncExecutionMap =
+    absl::flat_hash_map<AsyncExecutionId,
                         std::shared_ptr<HostSendRecvAsyncEvents>>;
 
 //===----------------------------------------------------------------------===//
@@ -96,7 +96,7 @@ class HostSendThunk : public Thunk {
   static absl::StatusOr<std::unique_ptr<HostSendThunk>> FromProto(
       ThunkInfo thunk_info, const HostSendThunkProto& proto,
       absl::Span<const BufferAllocation> allocations,
-      HostSendRecvAsyncEventsMap& async_events_map);
+      HostSendRecvAsyncExecutionMap& async_events_map);
 
   HostSendThunk(ThunkInfo thunk_info, Shape shape,
                 BufferAllocation::Slice buffer, int64_t channel_id,
@@ -114,7 +114,7 @@ class HostSendThunk : public Thunk {
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
   bool IsAsyncStart() const override { return events_ != nullptr; }
 
@@ -138,7 +138,7 @@ class HostSendDoneThunk : public Thunk {
   static absl::StatusOr<std::unique_ptr<HostSendDoneThunk>> FromProto(
       ThunkInfo thunk_info, const HostSendDoneThunkProto& proto,
       absl::Span<const BufferAllocation> allocations,
-      HostSendRecvAsyncEventsMap& async_events_map);
+      HostSendRecvAsyncExecutionMap& async_events_map);
 
   HostSendDoneThunk(ThunkInfo thunk_info, int64_t channel_id,
                     std::shared_ptr<HostSendRecvAsyncEvents> events,
@@ -148,7 +148,7 @@ class HostSendDoneThunk : public Thunk {
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
   bool IsAsyncDone() const override { return events_ != nullptr; }
 
@@ -168,7 +168,7 @@ class HostRecvThunk : public Thunk {
   static absl::StatusOr<std::unique_ptr<HostRecvThunk>> FromProto(
       ThunkInfo thunk_info, const HostRecvThunkProto& proto,
       absl::Span<const BufferAllocation> allocations,
-      HostSendRecvAsyncEventsMap& async_events_map);
+      HostSendRecvAsyncExecutionMap& async_events_map);
 
   HostRecvThunk(ThunkInfo thunk_info, Shape shape,
                 BufferAllocation::Slice buffer, int64_t channel_id,
@@ -186,7 +186,7 @@ class HostRecvThunk : public Thunk {
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
   bool IsAsyncStart() const override { return events_ != nullptr; }
 
@@ -210,7 +210,7 @@ class HostRecvDoneThunk : public Thunk {
   static absl::StatusOr<std::unique_ptr<HostRecvDoneThunk>> FromProto(
       ThunkInfo thunk_info, const HostRecvDoneThunkProto& proto,
       absl::Span<const BufferAllocation> allocations,
-      HostSendRecvAsyncEventsMap& async_events_map);
+      HostSendRecvAsyncExecutionMap& async_events_map);
 
   HostRecvDoneThunk(ThunkInfo thunk_info, int64_t channel_id,
                     std::shared_ptr<HostSendRecvAsyncEvents> events,
@@ -220,7 +220,7 @@ class HostRecvDoneThunk : public Thunk {
 
   absl::StatusOr<ThunkProto> ToProto() const override;
 
-  std::optional<AsyncEventsUniqueId> GetAsyncEventsUniqueId() const override;
+  std::optional<AsyncExecutionId> GetAsyncExecutionId() const override;
 
   bool IsAsyncDone() const override { return events_ != nullptr; }
 

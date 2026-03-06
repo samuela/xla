@@ -32,10 +32,10 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
-#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "xla/backends/gpu/collectives/gpu_clique_key.h"
+#include "xla/backends/gpu/runtime/async_execution.h"
 #include "xla/backends/gpu/runtime/collective_execution.h"
 #include "xla/backends/gpu/runtime/collective_params.h"
 #include "xla/backends/gpu/runtime/thunk.h"
@@ -55,7 +55,6 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/status_macros.h"
 #include "xla/stream_executor/device_address.h"
-#include "xla/stream_executor/event.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/util.h"
@@ -205,16 +204,12 @@ CollectiveConfig GetCollectiveConfig(
   return config;
 }
 
-CollectiveThunk::CollectiveThunk(Kind kind, ThunkInfo thunk_info, bool is_sync,
+CollectiveThunk::CollectiveThunk(Kind kind, ThunkInfo thunk_info, bool is_async,
                                  bool is_p2p)
     : Thunk(kind, thunk_info),
-      async_events_(is_sync ? nullptr : std::make_shared<AsyncEvents>()),
+      async_execution_(is_async ? std::make_shared<AsyncExecution>(this)
+                                : nullptr),
       is_p2p_(is_p2p) {}
-
-CollectiveThunk::CollectiveThunk(Kind kind, ThunkInfo thunk_info,
-                                 std::shared_ptr<AsyncEvents> async_events,
-                                 bool is_p2p)
-    : Thunk(kind, thunk_info), async_events_(async_events), is_p2p_(is_p2p) {}
 
 absl::StatusOr<GpuCliqueKey> GetCollectiveGpuCliqueKey(
     const CollectiveParams& params, const CollectiveConfig& collective_config,
@@ -304,32 +299,6 @@ absl::StatusOr<CollectiveThunk::Buffer> CollectiveThunk::Buffer::FromProto(
   return res;
 }
 
-absl::Status CollectiveThunk::AsyncEvents::Initialize(
-    se::StreamExecutor* executor) {
-  absl::MutexLock lock(mu_);
-  if (events_.contains(executor)) {
-    return absl::OkStatus();
-  }
-
-  ASSIGN_OR_RETURN(auto event, executor->CreateEvent());
-
-  events_.try_emplace(executor, std::move(event));
-  return absl::OkStatus();
-}
-
-absl::StatusOr<se::Event*> CollectiveThunk::AsyncEvents::GetEvent(
-    se::StreamExecutor* executor) {
-  absl::MutexLock lock(mu_);
-
-  auto event = events_.find(executor);
-  if (event == events_.end()) {
-    return absl::InternalError(
-        "Collective operation async completion event not initialized");
-  }
-
-  return event->second.get();
-}
-
 absl::Status CollectiveThunk::Prepare(const PrepareParams& params) {
   TF_RET_CHECK(params.collective_params &&
                params.collective_params->device_assn)
@@ -351,8 +320,9 @@ absl::Status CollectiveThunk::Prepare(const PrepareParams& params) {
 }
 
 absl::Status CollectiveThunk::Initialize(const InitializeParams& params) {
-  if (async_events_) {
-    RETURN_IF_ERROR(async_events_->Initialize(params.executor));
+  if (async_execution_) {
+    RETURN_IF_ERROR(async_execution_->Initialize(params.execution_scoped_state,
+                                                 params.executor));
   }
   return absl::OkStatus();
 }
@@ -372,7 +342,6 @@ absl::Status CollectiveThunk::ExecuteOnStream(const ExecuteParams& params) {
                        clique_key, params.collective_params->global_device_id));
   DCHECK(comm) << "Failed to get communicator for collective operation";
 
-  se::StreamExecutor* executor = params.stream->parent();
   int64_t async_stream_idx = Thunk::execution_stream_id().value();
 
   bool is_first_rendezvous_needed = false;
@@ -381,15 +350,17 @@ absl::Status CollectiveThunk::ExecuteOnStream(const ExecuteParams& params) {
     se::Stream& async_stream =
         *params.collective_params->async_streams.at(async_stream_idx);
 
-    // Wait for main compute stream to make sure all buffers are ready.
-    RETURN_IF_ERROR(async_stream.WaitFor(params.stream));
+    // Start() does async_stream.WaitFor(stream) + returns Guard that records
+    // event on async_stream when it goes out of scope.
+    ASSIGN_OR_RETURN(auto guard,
+                     async_execution_->Start(params.collective_params->run_id,
+                                             params.execution_scoped_state,
+                                             params.stream, &async_stream));
 
     ASSIGN_OR_RETURN(is_first_rendezvous_needed,
                      RunCollective(params, clique_key, async_stream, *comm));
 
-    // Record collective operation completion.
-    ASSIGN_OR_RETURN(se::Event * event, async_events_->GetEvent(executor));
-    RETURN_IF_ERROR(async_stream.RecordEvent(event));
+    // Guard destructor records event on async_stream.
   } else {
     // Launch collective operation on a main stream.
     ASSIGN_OR_RETURN(is_first_rendezvous_needed,
@@ -463,24 +434,21 @@ std::string CollectiveThunk::GetDeviceString(
                          collective_params.local_device_id.value());
 }
 
-std::optional<AsyncEventsUniqueId> CollectiveThunk::GetAsyncEventsUniqueId()
-    const {
-  if (!async_events_) {
+std::optional<AsyncExecutionId> CollectiveThunk::GetAsyncExecutionId() const {
+  if (!async_execution_) {
     return std::nullopt;
   }
-  // We rely on the fact that the pointer to async_events_ is unique.
-  return absl::bit_cast<AsyncEventsUniqueId>(async_events_.get());
+  // We rely on the fact that the pointer to async_execution_ is unique.
+  return absl::bit_cast<AsyncExecutionId>(async_execution_.get());
 }
 
 CollectiveDoneThunk::CollectiveDoneThunk(
     Thunk::Kind kind, ThunkInfo thunk_info,
-    std::shared_ptr<CollectiveThunk::AsyncEvents> async_events)
-    : Thunk(kind, std::move(thunk_info)), async_events_(async_events) {}
+    std::shared_ptr<AsyncExecution> async_execution)
+    : Thunk(kind, std::move(thunk_info)), async_execution_(async_execution) {}
 
 absl::Status CollectiveDoneThunk::ExecuteOnStream(const ExecuteParams& params) {
-  se::StreamExecutor* executor = params.stream->parent();
-  ASSIGN_OR_RETURN(se::Event * event, async_events_->GetEvent(executor));
-  return params.stream->WaitFor(event);
+  return async_execution_->Done(params.execution_scoped_state, params.stream);
 }
 
 absl::Status IsValidOperand(Shape shape, Thunk::Kind reduction_op) {
@@ -497,13 +465,13 @@ absl::Status IsValidOperand(Shape shape, Thunk::Kind reduction_op) {
   return absl::OkStatus();
 }
 
-std::optional<AsyncEventsUniqueId> CollectiveDoneThunk::GetAsyncEventsUniqueId()
+std::optional<AsyncExecutionId> CollectiveDoneThunk::GetAsyncExecutionId()
     const {
-  if (!async_events_) {
+  if (!async_execution_) {
     return std::nullopt;
   }
-  // We rely on the fact that the pointer to async_events_ is unique.
-  return absl::bit_cast<AsyncEventsUniqueId>(async_events_.get());
+  // We rely on the fact that the pointer to async_execution_ is unique.
+  return absl::bit_cast<AsyncExecutionId>(async_execution_.get());
 }
 
 absl::StatusOr<ThunkProto> CollectiveDoneThunk::ToProto() const {
@@ -512,9 +480,9 @@ absl::StatusOr<ThunkProto> CollectiveDoneThunk::ToProto() const {
 
   CollectiveDoneThunkProto* thunk_proto = proto.mutable_collective_done_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
   thunk_proto->set_thunk_kind(Thunk::KindToProto(kind()));
   return proto;
@@ -523,22 +491,22 @@ absl::StatusOr<ThunkProto> CollectiveDoneThunk::ToProto() const {
 absl::StatusOr<std::unique_ptr<CollectiveDoneThunk>>
 CollectiveDoneThunk::FromProto(
     ThunkInfo thunk_info, const CollectiveDoneThunkProto& thunk_proto,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
+  std::shared_ptr<AsyncExecution> async_execution;
   if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
+    auto it = async_execution_map.find(
+        AsyncExecutionId{thunk_proto.async_events_unique_id()});
+    if (it == async_execution_map.end()) {
+      return xla::Internal(
+          "Start thunk must be deserialized before done thunk");
     }
-    async_events = events;
+    async_execution = it->second;
   }
 
   ASSIGN_OR_RETURN(Thunk::Kind kind,
                    Thunk::KindFromProto(thunk_proto.thunk_kind()));
   return std::make_unique<CollectiveDoneThunk>(kind, std::move(thunk_info),
-                                               async_events);
+                                               async_execution);
 }
 
 }  // namespace xla::gpu

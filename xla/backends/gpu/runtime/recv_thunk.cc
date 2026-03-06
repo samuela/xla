@@ -54,16 +54,17 @@ namespace gpu {
 RecvThunk::RecvThunk(ThunkInfo thunk_info, const HloRecvInstruction* instr,
                      int64_t replica_count, int64_t partition_count,
                      const Buffer& buffer)
-    : RecvThunk(std::move(thunk_info),
-                GetP2PConfigForSendRecv(instr, instr->shape().tuple_shapes(0),
-                                        replica_count, partition_count),
-                std::make_shared<CollectiveThunk::AsyncEvents>(), buffer,
-                instr->name()) {}
+    : CollectiveThunk(Thunk::kRecv, thunk_info, /*is_async=*/true,
+                      /*is_p2p=*/true),
+      config_(GetP2PConfigForSendRecv(instr, instr->shape().tuple_shapes(0),
+                                      replica_count, partition_count)),
+      buffer_(buffer),
+      hlo_name_(instr->name()) {}
 
 RecvThunk::RecvThunk(ThunkInfo thunk_info, const P2PConfig& config,
-                     std::shared_ptr<AsyncEvents> async_events,
                      const Buffer& buffer, absl::string_view instr_name)
-    : CollectiveThunk(Thunk::kRecv, thunk_info, async_events, true),
+    : CollectiveThunk(Thunk::kRecv, thunk_info, /*is_async=*/true,
+                      /*is_p2p=*/true),
       config_(config),
       buffer_(buffer),
       hlo_name_(instr_name) {}
@@ -76,14 +77,7 @@ absl::Status RecvThunk::Initialize(const InitializeParams& params) {
 absl::StatusOr<std::unique_ptr<RecvThunk>> RecvThunk::FromProto(
     ThunkInfo thunk_info, const RecvThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
-  std::shared_ptr<CollectiveThunk::AsyncEvents>& async_events =
-      async_events_map[AsyncEventsUniqueId{
-          thunk_proto.async_events_unique_id()}];
-  if (!async_events) {
-    async_events = std::make_shared<CollectiveThunk::AsyncEvents>();
-  }
-
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
   ASSIGN_OR_RETURN(CollectiveThunk::Buffer buffer,
                    CollectiveThunk::Buffer::FromProto(thunk_proto.buffer(),
                                                       buffer_allocations));
@@ -99,9 +93,12 @@ absl::StatusOr<std::unique_ptr<RecvThunk>> RecvThunk::FromProto(
         .first->second.target = source_target.target();
   }
 
-  return std::make_unique<RecvThunk>(
+  auto thunk = std::make_unique<RecvThunk>(
       std::move(thunk_info), P2PConfig{config, std::move(id_to_source_target)},
-      async_events, buffer, thunk_proto.instruction_name());
+      buffer, thunk_proto.instruction_name());
+  async_execution_map[AsyncExecutionId{thunk_proto.async_events_unique_id()}] =
+      thunk->async_execution();
+  return thunk;
 }
 
 absl::StatusOr<ThunkProto> RecvThunk::ToProto() const {
@@ -110,9 +107,9 @@ absl::StatusOr<ThunkProto> RecvThunk::ToProto() const {
 
   RecvThunkProto* thunk_proto = proto.mutable_recv_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  CHECK(async_events_id.has_value());
-  thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  CHECK(async_execution_id.has_value());
+  thunk_proto->set_async_events_unique_id(async_execution_id->value());
 
   *thunk_proto->mutable_collective_config() = config_.config.ToProto();
   std::vector<SourceTarget> source_target_pairs;

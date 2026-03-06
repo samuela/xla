@@ -243,28 +243,28 @@ absl::Status LaunchMultiGpuBarrier(
 RaggedAllToAllStartThunk::RaggedAllToAllStartThunk(
     ThunkInfo thunk_info, const HloRaggedAllToAllInstruction* instr,
     std::vector<CollectiveThunk::Buffer> buffers, bool p2p_memcpy_enabled)
-    : RaggedAllToAllStartThunk(
-          std::move(thunk_info), GetRaggedAllToAllConfig(instr),
-          IsGPUSyncCollective(*instr)
-              ? nullptr
-              : std::make_shared<CollectiveThunk::AsyncEvents>(),
-          std::move(buffers),
+    : CollectiveThunk(Thunk::kRaggedAllToAllStart, thunk_info,
+                      !IsGPUSyncCollective(*instr), false),
+      config_(GetRaggedAllToAllConfig(instr)),
+      buffers_(std::move(buffers)),
+      one_shot_kernel_enabled_(
           instr->GetModule()
               ->config()
               .debug_options()
-              .xla_gpu_unsupported_use_ragged_all_to_all_one_shot_kernel(),
+              .xla_gpu_unsupported_use_ragged_all_to_all_one_shot_kernel()),
+      use_multi_gpu_barrier_in_one_shot_kernel_(
           instr->GetModule()
               ->config()
               .debug_options()
-              .xla_gpu_experimental_ragged_all_to_all_use_barrier()) {}
+              .xla_gpu_experimental_ragged_all_to_all_use_barrier()) {
+  CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
+}
 
 RaggedAllToAllStartThunk::RaggedAllToAllStartThunk(
     ThunkInfo thunk_info, const RaggedAllToAllConfig& config,
-    std::shared_ptr<AsyncEvents> async_events,
     std::vector<CollectiveThunk::Buffer> buffers, bool one_shot_kernel_enabled,
-    bool use_multi_gpu_barrier_in_one_shot_kernel)
-    : CollectiveThunk(Thunk::kRaggedAllToAllStart, thunk_info, async_events,
-                      false),
+    bool use_multi_gpu_barrier_in_one_shot_kernel, bool is_async)
+    : CollectiveThunk(Thunk::kRaggedAllToAllStart, thunk_info, is_async, false),
       config_(config),
       buffers_(std::move(buffers)),
       one_shot_kernel_enabled_(one_shot_kernel_enabled),
@@ -438,7 +438,7 @@ absl::StatusOr<std::unique_ptr<RaggedAllToAllStartThunk>>
 RaggedAllToAllStartThunk::FromProto(
     ThunkInfo thunk_info, const RaggedAllToAllStartThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
   std::vector<CollectiveThunk::Buffer> buffers;
   buffers.reserve(thunk_proto.buffers_size());
   for (const CollectiveBufferProto& proto : thunk_proto.buffers()) {
@@ -448,27 +448,23 @@ RaggedAllToAllStartThunk::FromProto(
     buffers.push_back(buffer);
   }
 
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
+  bool is_async = thunk_proto.has_async_events_unique_id();
 
   CollectiveConfig config =
       CollectiveConfig::FromProto(thunk_proto.collective_config());
 
-  return std::make_unique<RaggedAllToAllStartThunk>(
+  auto thunk = std::make_unique<RaggedAllToAllStartThunk>(
       std::move(thunk_info),
       RaggedAllToAllConfig{config, thunk_proto.num_total_updates(),
                            thunk_proto.num_input_rows(),
                            thunk_proto.num_row_elements()},
-      async_events, std::move(buffers), thunk_proto.one_shot_kernel_enabled(),
-      thunk_proto.use_multi_gpu_barrier_in_one_shot_kernel());
+      std::move(buffers), thunk_proto.one_shot_kernel_enabled(),
+      thunk_proto.use_multi_gpu_barrier_in_one_shot_kernel(), is_async);
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
 }
 
 absl::StatusOr<ThunkProto> RaggedAllToAllStartThunk::ToProto() const {
@@ -478,9 +474,9 @@ absl::StatusOr<ThunkProto> RaggedAllToAllStartThunk::ToProto() const {
   RaggedAllToAllStartThunkProto* thunk_proto =
       proto.mutable_ragged_all_to_all_start_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
 
   for (const Buffer& buffer : buffers_) {

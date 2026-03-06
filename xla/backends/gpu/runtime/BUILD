@@ -149,6 +149,7 @@ cc_library(
         ":all_reduce_thunk",
         ":all_to_all_thunk",
         ":annotation",
+        ":async_execution",
         ":collective_broadcast_thunk",
         ":collective_execution",
         ":collective_permute_thunk",
@@ -344,6 +345,54 @@ cc_library(
 #===-------------------------------------------------------------------------------------------===//
 # XLA Thunks Runtime
 #===-------------------------------------------------------------------------------------------===//
+
+cc_library(
+    name = "async_execution",
+    srcs = ["async_execution.cc"],
+    hdrs = ["async_execution.h"],
+    deps = [
+        ":thunk",
+        ":thunk_id",
+        "//xla:executable_run_options",
+        "//xla:util",
+        "//xla/runtime:object_pool",
+        "//xla/stream_executor:event",
+        "//xla/stream_executor:stream",
+        "//xla/stream_executor:stream_executor_h",
+        "//xla/tsl/platform:status_macros",
+        "//xla/tsl/util:unique_any",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
+xla_test(
+    name = "async_execution_test",
+    srcs = ["async_execution_test.cc"],
+    backends = ["gpu"],
+    deps = [
+        ":async_execution",
+        ":thunk",
+        ":thunk_id",
+        "//xla:executable_run_options",
+        "//xla/service:platform_util",
+        "//xla/stream_executor:platform",
+        "//xla/stream_executor:platform_manager",
+        "//xla/stream_executor:stream",
+        "//xla/stream_executor:stream_executor_h",
+        "//xla/tsl/platform:status_macros",
+        "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
 
 cc_library(
     name = "dynamic_slice_thunk",
@@ -1592,6 +1641,7 @@ cc_library(
     srcs = ["all_gather_thunk.cc"],
     hdrs = ["all_gather_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":thunk",
         "//xla:future",
@@ -1622,6 +1672,7 @@ xla_cc_test(
     srcs = ["all_gather_thunk_test.cc"],
     deps = [
         ":all_gather_thunk",
+        ":async_execution",
         ":collective_thunk",
         ":thunk",
         ":thunk_proto_cc",
@@ -1745,6 +1796,7 @@ cc_library(
     srcs = ["all_reduce_thunk.cc"],
     hdrs = ["all_reduce_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_kernel_thunk",
         ":collective_thunk",
         ":thunk",
@@ -1785,6 +1837,7 @@ xla_cc_test(
     srcs = ["all_reduce_thunk_test.cc"],
     deps = [
         ":all_reduce_thunk",
+        ":async_execution",
         ":collective_thunk",
         ":thunk",
         ":thunk_proto_cc",
@@ -1800,6 +1853,7 @@ cc_library(
     srcs = ["all_to_all_thunk.cc"],
     hdrs = ["all_to_all_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_execution",
         ":collective_thunk",
         ":thunk",
@@ -1842,6 +1896,7 @@ xla_cc_test(
     srcs = ["all_to_all_thunk_test.cc"],
     deps = [
         ":all_to_all_thunk",
+        ":async_execution",
         ":collective_thunk",
         ":thunk",
         ":thunk_proto_cc",
@@ -1857,6 +1912,7 @@ cc_library(
     srcs = ["ragged_all_to_all_thunk.cc"],
     hdrs = ["ragged_all_to_all_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_kernel_api",
         ":collective_thunk",
         ":ragged_all_to_all",
@@ -1909,6 +1965,7 @@ xla_test(
     tags = ["pjrt_migration_candidate"],
     use_legacy_runtime = True,
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":command_buffer_cmd_emitter",
         ":command_buffer_thunk",
@@ -1947,6 +2004,7 @@ cc_library(
     srcs = ["collective_broadcast_thunk.cc"],
     hdrs = ["collective_broadcast_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":thunk",
         "//xla:future",
@@ -1978,6 +2036,7 @@ xla_test(
     tags = ["pjrt_migration_candidate"],
     use_legacy_runtime = True,
     deps = [
+        ":async_execution",
         ":collective_broadcast_thunk",
         ":collective_thunk",
         ":command_buffer_cmd_emitter",
@@ -2015,6 +2074,7 @@ cc_library(
     srcs = ["collective_permute_thunk.cc"],
     hdrs = ["collective_permute_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":p2p_thunk_common",
         ":thunk",
@@ -2066,6 +2126,7 @@ xla_test(
     tags = ["pjrt_migration_candidate"],
     use_legacy_runtime = True,
     deps = [
+        ":async_execution",
         ":collective_permute_thunk",
         ":collective_thunk",
         ":command_buffer_cmd_emitter",
@@ -2337,10 +2398,12 @@ cc_library(
     srcs = ["collective_thunk.cc"],
     hdrs = ["collective_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_execution",
         ":collective_params",
         ":collective_thunk_proto_cc",
         ":thunk",
+        ":thunk_id",
         ":thunk_proto_cc",
         "//xla:debug_options_flags",
         "//xla:shape_util",
@@ -2431,6 +2494,7 @@ cc_library(
     srcs = ["recv_thunk.cc"],
     hdrs = ["recv_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":p2p_thunk_common",
         ":thunk",
@@ -2465,6 +2529,7 @@ xla_cc_test(
     name = "recv_thunk_test",
     srcs = ["recv_thunk_test.cc"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":recv_thunk",
         ":thunk",
@@ -2481,6 +2546,7 @@ cc_library(
     srcs = ["send_thunk.cc"],
     hdrs = ["send_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":p2p_thunk_common",
         ":thunk",
@@ -2515,6 +2581,7 @@ xla_cc_test(
     name = "send_thunk_test",
     srcs = ["send_thunk_test.cc"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":send_thunk",
         ":thunk",
@@ -2533,6 +2600,7 @@ xla_test(
     tags = ["pjrt_migration_candidate"],
     use_legacy_runtime = True,
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":command_buffer_cmd_emitter",
         ":command_buffer_thunk",
@@ -2570,15 +2638,16 @@ cc_library(
     srcs = ["collective_group_thunk.cc"],
     hdrs = ["collective_group_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":thunk",
         "//xla:future",
         "//xla/backends/gpu/collectives:gpu_communicator",
         "//xla/core/collectives:communicator",
         "//xla/service:buffer_assignment",
-        "//xla/stream_executor:event",
         "//xla/stream_executor:stream",
         "//xla/tsl/platform:status_macros",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/status",
@@ -3668,6 +3737,7 @@ cc_library(
     srcs = ["nvshmem_collective_thunk.cc"],
     hdrs = ["nvshmem_collective_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_clique_requests",
         ":collective_execution",
         ":collective_thunk",
@@ -3677,6 +3747,7 @@ cc_library(
         ":thunk_proto_cc",
         "//xla:shape_util",
         "//xla:status_macros",
+        "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/backends/gpu/collectives:gpu_clique_key",
         "//xla/backends/gpu/collectives:gpu_collectives",
@@ -3708,6 +3779,7 @@ xla_cc_test(
     name = "nvshmem_collective_thunk_test",
     srcs = ["nvshmem_collective_thunk_test.cc"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":nvshmem_all_reduce_thunk",
         ":nvshmem_collective_permute_thunk",
@@ -3728,11 +3800,13 @@ cc_library(
     srcs = ["nvshmem_collective_permute_thunk.cc"],
     hdrs = ["nvshmem_collective_permute_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_permute_thunk",
         ":collective_thunk",
         ":nvshmem_collective_thunk",
         ":p2p_thunk_common",
         ":thunk",
+        "//xla:util",
         "//xla:xla_data_proto_cc",
         "//xla/backends/gpu/collectives:gpu_collectives",
         "//xla/backends/gpu/transforms/collectives:collective_ops_utils",
@@ -3764,6 +3838,7 @@ cc_library(
     srcs = ["nvshmem_send_thunk.cc"],
     hdrs = ["nvshmem_send_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":nvshmem_collective_thunk",
         ":nvshmem_collective_thunk_proto_cc",
@@ -3800,6 +3875,7 @@ xla_cc_test(
     name = "nvshmem_recv_thunk_test",
     srcs = ["nvshmem_recv_thunk_test.cc"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":nvshmem_collective_thunk",
         ":nvshmem_collective_thunk_proto_cc",
@@ -3819,6 +3895,7 @@ cc_library(
     srcs = ["nvshmem_recv_thunk.cc"],
     hdrs = ["nvshmem_recv_thunk.h"],
     deps = [
+        ":async_execution",
         ":collective_thunk",
         ":nvshmem_collective_thunk",
         ":p2p_thunk_common",
@@ -3854,6 +3931,7 @@ cc_library(
     hdrs = ["nvshmem_all_reduce_thunk.h"],
     deps = [
         ":all_reduce_thunk",
+        ":async_execution",
         ":collective_thunk",
         ":nvshmem_collective_thunk",
         ":thunk",

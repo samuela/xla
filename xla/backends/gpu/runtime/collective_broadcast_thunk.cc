@@ -45,22 +45,20 @@ limitations under the License.
 namespace xla::gpu {
 
 CollectiveBroadcastStartThunk::CollectiveBroadcastStartThunk(
-    ThunkInfo thunk_info, CollectiveConfig config,
-    std::shared_ptr<AsyncEvents> async_events, std::vector<Buffer> buffers)
-    : CollectiveThunk(Thunk::kCollectiveBroadcastStart, thunk_info,
-                      async_events, false),
+    ThunkInfo thunk_info, CollectiveConfig config, std::vector<Buffer> buffers,
+    bool is_async)
+    : CollectiveThunk(Thunk::kCollectiveBroadcastStart, thunk_info, is_async,
+                      false),
       config_(config),
       buffers_(std::move(buffers)) {}
 
 CollectiveBroadcastStartThunk::CollectiveBroadcastStartThunk(
     ThunkInfo thunk_info, const HloCollectiveBroadcastInstruction* instr,
     std::vector<Buffer> buffers, bool p2p_memcpy_enabled)
-    : CollectiveBroadcastStartThunk(
-          std::move(thunk_info), GetCollectiveConfig(instr, std::nullopt),
-          IsGPUSyncCollective(*instr)
-              ? nullptr
-              : std::make_shared<CollectiveThunk::AsyncEvents>(),
-          std::move(buffers)) {}
+    : CollectiveThunk(Thunk::kCollectiveBroadcastStart, thunk_info,
+                      !IsGPUSyncCollective(*instr), false),
+      config_(GetCollectiveConfig(instr, std::nullopt)),
+      buffers_(std::move(buffers)) {}
 
 /*static*/ absl::Status CollectiveBroadcastStartThunk::CheckImplementable(
     const HloInstruction* instr, int64_t replica_count,
@@ -77,17 +75,8 @@ absl::StatusOr<std::unique_ptr<CollectiveBroadcastStartThunk>>
 CollectiveBroadcastStartThunk::FromProto(
     ThunkInfo thunk_info, const CollectiveBroadcastStartThunkProto& thunk_proto,
     absl::Span<const BufferAllocation> buffer_allocations,
-    CollectiveThunk::AsyncEventsMap& async_events_map) {
-  std::shared_ptr<CollectiveThunk::AsyncEvents> async_events;
-  if (thunk_proto.has_async_events_unique_id()) {
-    std::shared_ptr<CollectiveThunk::AsyncEvents>& events =
-        async_events_map[AsyncEventsUniqueId{
-            thunk_proto.async_events_unique_id()}];
-    if (!events) {
-      events = std::make_shared<CollectiveThunk::AsyncEvents>();
-    }
-    async_events = events;
-  }
+    CollectiveThunk::AsyncExecutionMap& async_execution_map) {
+  bool is_async = thunk_proto.has_async_events_unique_id();
 
   CollectiveConfig config =
       CollectiveConfig::FromProto(thunk_proto.collective_config());
@@ -101,9 +90,13 @@ CollectiveBroadcastStartThunk::FromProto(
     buffers.push_back(buffer);
   }
 
-  return std::make_unique<CollectiveBroadcastStartThunk>(
-      std::move(thunk_info), config, std::move(async_events),
-      std::move(buffers));
+  auto thunk = std::make_unique<CollectiveBroadcastStartThunk>(
+      std::move(thunk_info), config, std::move(buffers), is_async);
+  if (is_async) {
+    async_execution_map[AsyncExecutionId{
+        thunk_proto.async_events_unique_id()}] = thunk->async_execution();
+  }
+  return thunk;
 }
 
 absl::StatusOr<ThunkProto> CollectiveBroadcastStartThunk::ToProto() const {
@@ -113,9 +106,9 @@ absl::StatusOr<ThunkProto> CollectiveBroadcastStartThunk::ToProto() const {
   CollectiveBroadcastStartThunkProto* thunk_proto =
       proto.mutable_collective_broadcast_start_thunk();
 
-  std::optional<AsyncEventsUniqueId> async_events_id = GetAsyncEventsUniqueId();
-  if (async_events_id.has_value()) {
-    thunk_proto->set_async_events_unique_id(async_events_id->value());
+  std::optional<AsyncExecutionId> async_execution_id = GetAsyncExecutionId();
+  if (async_execution_id.has_value()) {
+    thunk_proto->set_async_events_unique_id(async_execution_id->value());
   }
 
   for (const Buffer& buffer : buffers_) {
