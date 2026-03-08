@@ -76,6 +76,10 @@ class YnnMatcher : public LibraryMatcher {
     // TODO(b/441837668): Need to get the reduction performance right before
     // enabling fusions. Fusions make performance analysis quite challenging.
     if (fuse_reduce_) {
+      if (instr->opcode() == HloOpcode::kReshape) {
+        return IsReshapeOpSupportedByYnn(instr);
+      }
+
       return false;
     }
     if (instr->IsElementwise()) {
