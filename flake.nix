@@ -222,6 +222,25 @@ CONFIGURE_EOF
 
       packages.${system}.xla-pjrt = let
         pythonEnv = pkgs.python3.withPackages (ps: [ ps.numpy ]);
+        cudaPackages = pkgs.cudaPackages_12_9;
+        # Runtime CUDA libraries for the GPU plugin.
+        # libcuda.so.1 (the driver) is NOT included — it comes from the host
+        # via addDriverRunpath (/run/opengl-driver/lib on NixOS).
+        gpuRuntimeLibs = [
+          pkgs.stdenv.cc.cc.lib  # libstdc++
+          cudaPackages.cuda_cupti.lib
+          cudaPackages.cuda_cudart
+          cudaPackages.libcublas.lib
+          cudaPackages.cudnn.lib
+          cudaPackages.nccl
+          cudaPackages.libcufft.lib
+          cudaPackages.libcusparse.lib
+          cudaPackages.cuda_nvrtc.lib
+          cudaPackages.libnvjitlink.lib
+        ];
+        gpuRpath = lib.makeLibraryPath gpuRuntimeLibs
+          + ":${pkgs.addDriverRunpath.driverLink}/lib";
+        cpuRpath = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
       in pkgs.buildBazelPackage {
         pname = "xla-pjrt";
         version = "0-unstable-2026-03-08";
@@ -405,8 +424,48 @@ CONFIGURE_EOF
             cp bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so $out/lib/
             cp xla/pjrt/c/pjrt_c_api.h $out/include/xla/pjrt/c/
             cp xla/pjrt/c/pjrt_c_api_macros.h $out/include/xla/pjrt/c/
+            chmod +w $out/lib/*.so
+
+            # RPATH is set in postFixup to avoid the fixup phase shrinking it.
+            # (Nix removes RPATH entries it considers unnecessary, including
+            # $ORIGIN and /run/opengl-driver/lib.)
+
+            # Create nvshmem stub libraries — the GPU plugin links against
+            # nvshmem for multi-node communication but it's not needed for
+            # single-node use and not in nixpkgs. Generate stubs with proper
+            # versioned symbols that abort if actually called.
+            nvshmem_syms=$(nm -D $out/lib/pjrt_c_api_gpu_plugin.so \
+              | grep ' U.*@NVSHMEM' | sed 's/.*U //' | sed 's/@NVSHMEM//' | sort -u)
+            cat > /tmp/nvshmem_stub.c << 'STUBEOF'
+            #include <stdlib.h>
+            #include <stdio.h>
+            static void nvshmem_stub_abort(const char* fn) {
+              fprintf(stderr, "FATAL: %s called but nvshmem is not available\n", fn);
+              abort();
+            }
+            #define STUB(name) void name(void) { nvshmem_stub_abort(#name); }
+            STUBEOF
+            for sym in $nvshmem_syms; do echo "STUB($sym)" >> /tmp/nvshmem_stub.c; done
+            cat > /tmp/nvshmem.ver << 'VEREOF'
+            NVSHMEM { global: *; };
+            VEREOF
+            gcc -shared -fPIC -o "$out/lib/libnvshmem_host.so.3" /tmp/nvshmem_stub.c \
+              -Wl,-soname,libnvshmem_host.so.3 -Wl,--version-script=/tmp/nvshmem.ver
+            # These two are NEEDED but have no symbol references — empty stubs.
+            for soname in nvshmem_bootstrap_uid.so.3 nvshmem_transport_ibrc.so.3; do
+              gcc -shared -fPIC -o "$out/lib/$soname" -Wl,-soname,"$soname" -xc /dev/null
+            done
 
             runHook postInstall
+          '';
+
+          # Set RPATH after the fixup phase to prevent Nix from shrinking it.
+          # $ORIGIN (for nvshmem stubs) and /run/opengl-driver/lib (for the
+          # NVIDIA driver on NixOS) would otherwise be removed.
+          dontPatchELF = true;
+          postFixup = ''
+            patchelf --set-rpath "${cpuRpath}" $out/lib/pjrt_c_api_cpu_plugin.so
+            patchelf --set-rpath "${gpuRpath}:$out/lib" $out/lib/pjrt_c_api_gpu_plugin.so
           '';
         };
       };
@@ -417,8 +476,7 @@ CONFIGURE_EOF
       } ''
         gcc -o test_pjrt ${./test_pjrt.c} \
           -I$pjrt/include -ldl -lm
-        LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]} \
-          ./test_pjrt $pjrt/lib/pjrt_c_api_cpu_plugin.so
+        ./test_pjrt $pjrt/lib/pjrt_c_api_cpu_plugin.so
         touch $out
       '';
     };
