@@ -256,6 +256,7 @@ CONFIGURE_EOF
         # clang, sysroot, and CUDA toolkit.
 
         bazelTargets = [
+          "//xla/pjrt/c:pjrt_c_api_cpu_plugin.so"
           "//xla/pjrt/c:pjrt_c_api_gpu_plugin.so"
         ];
 
@@ -400,6 +401,7 @@ CONFIGURE_EOF
             runHook preInstall
 
             mkdir -p $out/lib $out/include/xla/pjrt/c
+            cp bazel-bin/xla/pjrt/c/pjrt_c_api_cpu_plugin.so $out/lib/
             cp bazel-bin/xla/pjrt/c/pjrt_c_api_gpu_plugin.so $out/lib/
             cp xla/pjrt/c/pjrt_c_api.h $out/include/xla/pjrt/c/
             cp xla/pjrt/c/pjrt_c_api_macros.h $out/include/xla/pjrt/c/
@@ -408,5 +410,16 @@ CONFIGURE_EOF
           '';
         };
       };
+
+      checks.${system}.pjrt-cpu-test = pkgs.runCommand "pjrt-cpu-test" {
+        nativeBuildInputs = [ pkgs.gcc ];
+        pjrt = self.packages.${system}.xla-pjrt;
+      } ''
+        gcc -o test_pjrt ${./test_pjrt.c} \
+          -I$pjrt/include -ldl -lm
+        LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]} \
+          ./test_pjrt $pjrt/lib/pjrt_c_api_cpu_plugin.so
+        touch $out
+      '';
     };
 }
