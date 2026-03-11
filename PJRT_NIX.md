@@ -24,9 +24,6 @@ $out/
   lib/
     pjrt_c_api_cpu_plugin.so        # ~250 MB, CPU plugin
     pjrt_c_api_gpu_plugin.so        # ~407 MB, GPU plugin
-    libnvshmem_host.so.3            # nvshmem stub (see below)
-    nvshmem_bootstrap_uid.so.3      # nvshmem stub
-    nvshmem_transport_ibrc.so.3     # nvshmem stub
   include/xla/pjrt/c/
     pjrt_c_api.h
     pjrt_c_api_macros.h
@@ -50,22 +47,10 @@ Two-phase build:
 
 The GPU plugin's RPATH points to nixpkgs CUDA 12.9 runtime libraries:
 - cuda_cupti, cuda_cudart, libcublas, cudnn, nccl, libcufft, libcusparse,
-  cuda_nvrtc, libnvjitlink
+  cuda_nvrtc, libnvjitlink, libnvshmem
 - `/run/opengl-driver/lib` — NVIDIA driver (NixOS convention via `addDriverRunpath`)
-- `$out/lib` — nvshmem stubs
 
 The CPU plugin's RPATH points only to libstdc++.
-
-### nvshmem stubs
-
-The GPU plugin links against nvshmem (NVIDIA multi-node GPU communication) at
-the dynamic linker level. For single-GPU use, these functions are never called.
-Rather than pulling in the full libnvshmem (which requires MPI, UCX, gdrcopy,
-libfabric, pmix, rdma-core), we generate stub libraries at build time:
-
-- Extract undefined `@NVSHMEM` symbols from the GPU plugin via `nm -D`
-- Compile C stubs that `abort()` with a clear error if called
-- Use a version script to tag all symbols with the `NVSHMEM` version
 
 ### Compute capabilities
 

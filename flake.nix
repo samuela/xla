@@ -24,202 +24,9 @@
           allowUnfree = true;
           cudaSupport = true;
         };
-        overlays = [
-          # Fix incomplete glibc 2.42 noexcept patch in cuda_nvcc.
-          # nixpkgs patches math_functions.h but misses math_functions.hpp.
-          # TODO: upstream to nixpkgs
-          (final: prev: {
-            cudaPackages_12_9 = prev.cudaPackages_12_9.overrideScope (
-              cfinal: cprev: {
-                cuda_nvcc = cprev.cuda_nvcc.overrideAttrs (oldAttrs: {
-                  postInstall = (oldAttrs.postInstall or "") + ''
-                    nixLog "Patching math_functions.hpp signatures to match glibc's ones"
-                    sed -i \
-                      -e 's/__func__(double rsqrt(const double a))/__func__(double rsqrt(const double a) throw())/' \
-                      -e 's/__func__(double sinpi(double a))/__func__(double sinpi(double a) throw())/' \
-                      -e 's/__func__(double cospi(double a))/__func__(double cospi(double a) throw())/' \
-                      -e 's/__func__(float rsqrtf(const float a))/__func__(float rsqrtf(const float a) throw())/' \
-                      -e 's/__func__(float sinpif(const float a))/__func__(float sinpif(const float a) throw())/' \
-                      -e 's/__func__(float cospif(const float a))/__func__(float cospif(const float a) throw())/' \
-                      "''${!outputInclude:?}/include/crt/math_functions.hpp"
-
-                    # When clang compiles CUDA, host_defines.h redefines __noinline__
-                    # as __attribute__((noinline)). This conflicts with libstdc++ >=12
-                    # which uses __attribute__((__noinline__)) — the macro expands to
-                    # __attribute__((__attribute__((noinline)))) which is invalid.
-                    # Clang natively understands __noinline__ as an attribute, so the
-                    # macro is unnecessary. Skip it when clang is the compiler.
-                    nixLog "Patching host_defines.h to skip __noinline__ macro under clang"
-                    sed -i \
-                      's/#if defined(__CUDACC__) || defined(__CUDA_ARCH__) || defined(__CUDA_LIBDEVICE__)/#if (defined(__CUDACC__) || defined(__CUDA_ARCH__) || defined(__CUDA_LIBDEVICE__)) \&\& !defined(__clang__)/' \
-                      "''${!outputInclude:?}/include/crt/host_defines.h"
-
-                    # Clang 19 CUDA mode: placement new from <new> is __host__ only,
-                    # but device code (CUB/CCCL) needs it. Add a header declaring
-                    # __host__ __device__ placement new. Force-included via --cxxopt.
-                  '';
-                });
-              }
-            );
-          })
-        ];
       };
-
-      cudaPackages = pkgs.cudaPackages_12_9;
-
-      # Use the CUDA-compatible stdenv (GCC version validated against nvcc).
-      stdenv = cudaPackages.backendStdenv;
-
-      # Merged CUDA toolkit tree — combines all split CUDA packages into a
-      # single directory with include/, lib/, bin/, nvvm/ subdirs.
-      # This is what XLA's LOCAL_CUDA_PATH expects.
-      # cudaPackages.cudatoolkit doesn't include libnvjitlink, which XLA needs.
-      cudaMerged = pkgs.symlinkJoin {
-        name = "cuda-merged";
-        paths = [
-          cudaPackages.cudatoolkit
-          cudaPackages.libnvjitlink.lib
-          cudaPackages.libnvjitlink.dev
-          cudaPackages.libnvjitlink.include
-        ];
-      };
-
-      # Merged cuDNN tree for LOCAL_CUDNN_PATH.
-      cudnnMerged = pkgs.symlinkJoin {
-        name = "cudnn-merged";
-        paths = [
-          cudaPackages.cudnn.lib
-          cudaPackages.cudnn.dev
-          cudaPackages.cudnn.include
-        ];
-      };
-
-      # Merged NCCL tree for LOCAL_NCCL_PATH.
-      ncclMerged = pkgs.symlinkJoin {
-        name = "nccl-merged";
-        paths = [
-          cudaPackages.nccl.out
-          cudaPackages.nccl.dev
-        ];
-      };
-
-      # libstdc++ path for rpath — needed because cuda_clang config uses
-      # -fuse-ld=lld for host tools, and lld doesn't add rpaths automatically.
-      libstdcxxPath = "${stdenv.cc.cc.lib}/lib";
-
-      # Clang 19 wrapped to use GCC 14.3.0 (backendStdenv) instead of GCC 15.2.0.
-      # GCC 15 headers use [[gnu::noinline]] syntax incompatible with clang's
-      # CUDA mode. We override cc-cflags to point at backendStdenv's GCC.
-      gcc14 = stdenv.cc.cc;
-      gcc15 = pkgs.gcc.cc;  # default nixpkgs GCC (15.2.0)
-      clang = pkgs.llvmPackages_19.clang.overrideAttrs (old: {
-        postFixup = (old.postFixup or "") + ''
-          # Replace all GCC 15 references with GCC 14 in nix-support files
-          for f in $out/nix-support/cc-cflags $out/nix-support/libcxx-cxxflags; do
-            if [ -f "$f" ]; then
-              sed -i "s|${gcc15}|${gcc14}|g; s|${gcc15.version}|${gcc14.version}|g" "$f"
-            fi
-          done
-
-          # Add device placement new header to clang's resource-root.
-          # Clang 19 CUDA mode only has __host__ placement new from <new>;
-          # CUB/CCCL need __device__ overloads too. This header is
-          # force-included via --cxxopt and is guarded by __CUDA__.
-          # resource-root/include is a symlink — replace with a real dir
-          # containing the original files plus our header.
-          if [ -L "$out/resource-root/include" ]; then
-            target=$(readlink -f "$out/resource-root/include")
-            rm "$out/resource-root/include"
-            mkdir "$out/resource-root/include"
-            for f in "$target"/*; do
-              ln -s "$f" "$out/resource-root/include/$(basename "$f")"
-            done
-          fi
-          cat > $out/resource-root/include/cuda_device_placement_new.h << 'HEADER_EOF'
-#ifndef CUDA_DEVICE_PLACEMENT_NEW_H_
-#define CUDA_DEVICE_PLACEMENT_NEW_H_
-#if defined(__CUDA__) && defined(__clang__)
-#include <new>
-__device__ inline void* operator new(__SIZE_TYPE__, void* __p) noexcept { return __p; }
-__device__ inline void* operator new[](__SIZE_TYPE__, void* __p) noexcept { return __p; }
-__device__ inline void operator delete(void*, void*) noexcept {}
-__device__ inline void operator delete[](void*, void*) noexcept {}
-#endif
-#endif
-HEADER_EOF
-        '';
-      });
-
-      lld = pkgs.llvmPackages_19.lld;
-
-      # The bazel target used for build verification.
-      xlaBuildTarget = "//xla/tools/multihost_hlo_runner:hlo_runner_main";
     in
     {
-      devShells.${system}.default = (pkgs.mkShell.override { inherit stdenv; }) {
-        packages = [
-          pkgs.bazel_7
-          pkgs.python3
-          pkgs.git
-          clang
-          lld
-        ];
-
-        # Disable fortify hardening — nvcc can't handle glibc's fortified
-        # headers (__pass_object_size__ attributes cause "linkage specification
-        # is incompatible" errors).
-        hardeningDisable = [ "fortify" ];
-
-        CUDA_MERGED = cudaMerged;
-        CUDNN_MERGED = cudnnMerged;
-        NCCL_MERGED = ncclMerged;
-        LIBSTDCXX_PATH = libstdcxxPath;
-
-        shellHook = ''
-          export PATH="$CUDA_MERGED/bin:$PATH"
-          echo "XLA dev shell (Bazel $(bazel --version 2>&1 | grep -oP '\d+\.\d+\.\d+'), clang $(clang --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1), CUDA $(nvcc --version 2>&1 | grep -oP 'V\K[\d.]+'))"
-          echo "  CUDA_MERGED=$CUDA_MERGED"
-          echo "  Build target: ${xlaBuildTarget}"
-          echo ""
-          echo "To build:"
-          echo "  ./.configure-nix && bazel build --config cuda ${xlaBuildTarget}"
-
-          # Write a configure wrapper that runs configure.py then appends
-          # nix-specific workarounds to xla_configure.bazelrc.
-          cat > .configure-nix << CONFIGURE_EOF
-#!/usr/bin/env bash
-set -euo pipefail
-CAPS="\''${1:-9.0}"
-
-python3 configure.py \\
-  --backend CUDA --host_compiler CLANG --cuda_compiler CLANG --nccl \\
-  --clang_path "$(which clang)" --lld_path "$(which ld.lld)" \\
-  --local_cuda_path "$CUDA_MERGED" --local_cudnn_path "$CUDNN_MERGED" \\
-  --local_nccl_path "$NCCL_MERGED" --cuda_compute_capabilities "\$CAPS"
-
-# Append nix-specific workarounds.
-cat >> xla_configure.bazelrc << EOF
-build --action_env NIX_HARDENING_ENABLE="$NIX_HARDENING_ENABLE"
-build --copt -U_FORTIFY_SOURCE
-build --copt -D_FORTIFY_SOURCE=0
-build --host_copt -U_FORTIFY_SOURCE
-build --host_copt -D_FORTIFY_SOURCE=0
-build --copt -Wno-error=unused-command-line-argument
-build --copt -Wno-gnu-offsetof-extensions
-build --cxxopt=-include --cxxopt=cuda_device_placement_new.h
-build --copt -fgpu-defer-diag
-build --copt -U_GLIBCXX_HAVE_IS_CONSTANT_EVALUATED
-build --linkopt -lm
-build --host_linkopt -Wl,-rpath,$LIBSTDCXX_PATH
-build --linkopt -Wl,-rpath,$LIBSTDCXX_PATH
-EOF
-
-echo "Done. xla_configure.bazelrc updated with nix workarounds."
-CONFIGURE_EOF
-          chmod +x .configure-nix
-        '';
-      };
-
       packages.${system}.xla-pjrt = let
         pythonEnv = pkgs.python3.withPackages (ps: [ ps.numpy ]);
         cudaPackages = pkgs.cudaPackages_12_9;
@@ -237,6 +44,7 @@ CONFIGURE_EOF
           cudaPackages.libcusparse.lib
           cudaPackages.cuda_nvrtc.lib
           cudaPackages.libnvjitlink.lib
+          cudaPackages.libnvshmem
         ];
         gpuRpath = lib.makeLibraryPath gpuRuntimeLibs
           + ":${pkgs.addDriverRunpath.driverLink}/lib";
@@ -426,46 +234,16 @@ CONFIGURE_EOF
             cp xla/pjrt/c/pjrt_c_api_macros.h $out/include/xla/pjrt/c/
             chmod +w $out/lib/*.so
 
-            # RPATH is set in postFixup to avoid the fixup phase shrinking it.
-            # (Nix removes RPATH entries it considers unnecessary, including
-            # $ORIGIN and /run/opengl-driver/lib.)
-
-            # Create nvshmem stub libraries — the GPU plugin links against
-            # nvshmem for multi-node communication but it's not needed for
-            # single-node use and not in nixpkgs. Generate stubs with proper
-            # versioned symbols that abort if actually called.
-            nvshmem_syms=$(nm -D $out/lib/pjrt_c_api_gpu_plugin.so \
-              | grep ' U.*@NVSHMEM' | sed 's/.*U //' | sed 's/@NVSHMEM//' | sort -u)
-            cat > /tmp/nvshmem_stub.c << 'STUBEOF'
-            #include <stdlib.h>
-            #include <stdio.h>
-            static void nvshmem_stub_abort(const char* fn) {
-              fprintf(stderr, "FATAL: %s called but nvshmem is not available\n", fn);
-              abort();
-            }
-            #define STUB(name) void name(void) { nvshmem_stub_abort(#name); }
-            STUBEOF
-            for sym in $nvshmem_syms; do echo "STUB($sym)" >> /tmp/nvshmem_stub.c; done
-            cat > /tmp/nvshmem.ver << 'VEREOF'
-            NVSHMEM { global: *; };
-            VEREOF
-            gcc -shared -fPIC -o "$out/lib/libnvshmem_host.so.3" /tmp/nvshmem_stub.c \
-              -Wl,-soname,libnvshmem_host.so.3 -Wl,--version-script=/tmp/nvshmem.ver
-            # These two are NEEDED but have no symbol references — empty stubs.
-            for soname in nvshmem_bootstrap_uid.so.3 nvshmem_transport_ibrc.so.3; do
-              gcc -shared -fPIC -o "$out/lib/$soname" -Wl,-soname,"$soname" -xc /dev/null
-            done
-
             runHook postInstall
           '';
 
           # Set RPATH after the fixup phase to prevent Nix from shrinking it.
-          # $ORIGIN (for nvshmem stubs) and /run/opengl-driver/lib (for the
-          # NVIDIA driver on NixOS) would otherwise be removed.
+          # /run/opengl-driver/lib (for the NVIDIA driver on NixOS) would
+          # otherwise be removed as "unnecessary".
           dontPatchELF = true;
           postFixup = ''
             patchelf --set-rpath "${cpuRpath}" $out/lib/pjrt_c_api_cpu_plugin.so
-            patchelf --set-rpath "${gpuRpath}:$out/lib" $out/lib/pjrt_c_api_gpu_plugin.so
+            patchelf --set-rpath "${gpuRpath}" $out/lib/pjrt_c_api_gpu_plugin.so
           '';
         };
       };
